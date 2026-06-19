@@ -1,0 +1,616 @@
+/* ── Layout: side-by-side, fills the screen ── */
+.layout {
+  display: flex;
+  height: 100%;
+  gap: 0;
+  position: relative;
+}
+
+/* ── Left: article browser ── */
+.left {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 10px;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* Letter filter */
+.letterBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  background: white;
+  border-radius: var(--radius);
+  padding: 6px 8px;
+  box-shadow: var(--shadow);
+  flex-shrink: 0;
+}
+
+.letterBtn {
+  background: var(--gray-100);
+  color: var(--gray-600);
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 5px 7px;
+  min-width: 28px;
+  min-height: 34px;
+  transition: background 0.12s, color 0.12s;
+}
+.letterBtn:hover { background: var(--green-light); color: var(--green); }
+.letterActive { background: var(--green) !important; color: white !important; }
+
+/* 3×3 grid — fills available height. touch-action: pan-y erlaubt vertikales
+   Scrollen (falls nötig), aber horizontale Wischgesten werden nicht vom
+   Browser für Navigation/Zurück-Geste abgefangen, sondern kommen bei unserem
+   eigenen Touch-Handler an.
+   Grösserer gap (12px statt 8px) sorgt für mehr Luft zwischen den jetzt
+   vollflächig bebilderten Kacheln, damit es nicht "zusammengequetscht" wirkt. */
+.grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  gap: 12px;
+  padding: 2px;
+  overflow: hidden;
+  touch-action: pan-y;
+  animation: gridFadeIn 0.18s ease;
+}
+
+@keyframes gridFadeIn {
+  from { opacity: 0.3; }
+  to { opacity: 1; }
+}
+
+/* Artikelkachel: Bild füllt die GESAMTE Kachel als Hintergrund aus,
+   Name/Preis liegen als Overlay mit Gradient am unteren Rand darüber. */
+.articleCard {
+  position: relative;
+  background-color: var(--gray-50);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0;
+  border: 2px solid transparent;
+  transition: transform 0.12s, box-shadow 0.12s, border-color 0.12s;
+  cursor: pointer;
+  overflow: hidden;
+}
+.articleCard:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); border-color: var(--green); }
+.articleCard:active { transform: scale(0.94); }
+
+/* Verschwommener Hintergrund: füllt die ganze Kachel (darf beschnitten werden),
+   sorgt dafür, dass keine leeren Ränder entstehen, egal wie die Kachel
+   proportioniert ist. */
+.articleBlurBg {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  filter: blur(12px) brightness(0.9);
+  transform: scale(1.1); /* verhindert helle Kanten durch den Blur */
+}
+
+/* Scharfes Bild: immer KOMPLETT sichtbar (contain), nie beschnitten,
+   passt sich jeder Kachelgrösse an. z-index 1, damit das Banner darüber liegt.
+   Unten etwas Platz lassen (padding-bottom), damit das Bild nicht hinter dem
+   Banner verschwindet, sondern komplett darüber sichtbar bleibt. */
+.articleImg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 4px 4px 34px 4px;
+  z-index: 1;
+}
+
+.articleEmoji {
+  position: absolute;
+  top: 42%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 64px;
+  line-height: 1;
+  z-index: 1;
+}
+
+/* Banner mit Name/Preis: fest am unteren Rand der Kachel verankert und per
+   z-index IMMER über dem Bild — so kann es nie vom Bild verdeckt werden,
+   egal wie gross/klein das Bild in der Kachel dargestellt wird. */
+.articleOverlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 18px 4px 6px;
+  background: linear-gradient(to top, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.6) 55%, transparent 100%);
+}
+
+.articleName {
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
+  color: white;
+  line-height: 1.2;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 4px;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+}
+
+.articlePrice {
+  font-size: 13px;
+  font-weight: 900;
+  color: var(--yellow);
+  text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+}
+
+.empty {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--gray-400);
+  font-weight: 700;
+  font-size: 15px;
+}
+
+/* Pagination */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-shrink: 0;
+  padding: 2px 0;
+}
+.pagination button {
+  background: var(--green);
+  color: white;
+  border-radius: 9px;
+  padding: 8px 20px;
+  font-size: 15px;
+  font-weight: 800;
+  min-height: 40px;
+}
+.pagination button:disabled { background: var(--gray-200); color: var(--gray-400); }
+.pagination span { font-weight: 700; color: var(--gray-600); font-size: 13px; }
+
+/* ── Right: cart ── */
+.right {
+  width: 260px;
+  flex-shrink: 0;
+  background: white;
+  display: flex;
+  flex-direction: column;
+  box-shadow: -3px 0 16px rgba(0,0,0,0.08);
+}
+
+.cartHeader {
+  background: var(--green);
+  color: white;
+  font-size: 17px;
+  font-weight: 900;
+  padding: 13px 16px;
+  flex-shrink: 0;
+}
+
+.cartItems {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cartEmpty {
+  text-align: center;
+  color: var(--gray-400);
+  margin-top: 30px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.cartItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--gray-50);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+.cartItemName { flex: 1; font-size: 12px; font-weight: 700; color: var(--gray-800); line-height: 1.2; }
+.cartItemControls { display: flex; align-items: center; gap: 4px; }
+.qtyBtn {
+  background: var(--green-light);
+  color: var(--green);
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  font-size: 18px;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.qty { font-size: 13px; font-weight: 800; min-width: 18px; text-align: center; }
+.cartItemPrice { font-size: 12px; font-weight: 900; color: var(--green); min-width: 58px; text-align: right; }
+
+.cartTotal {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  border-top: 2px solid var(--gray-100);
+  flex-shrink: 0;
+}
+.cartTotal span:first-child { font-size: 14px; font-weight: 700; color: var(--gray-600); }
+.totalAmount { font-size: 20px; font-weight: 900; color: var(--green); }
+
+.payBtn {
+  margin: 0 10px 8px;
+  background: var(--green);
+  color: white;
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  font-size: 16px;
+  font-weight: 900;
+  min-height: 52px;
+  flex-shrink: 0;
+}
+.payBtn:hover:not(:disabled) { background: var(--green-dark); }
+.payBtn:disabled { background: var(--gray-200); color: var(--gray-400); }
+
+.clearBtn {
+  margin: 0 10px 10px;
+  background: transparent;
+  color: var(--red);
+  border: 2px solid var(--red);
+  border-radius: var(--radius-sm);
+  padding: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  min-height: 38px;
+}
+
+/* ── Payment overlay ── */
+.overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.modal {
+  background: white;
+  border-radius: 26px;
+  padding: 40px 36px;
+  width: 440px;
+  max-width: 90vw;
+  text-align: center;
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+.modal h2 { font-size: 30px; font-weight: 900; }
+.modal p { font-size: 19px; color: var(--gray-600); font-weight: 600; line-height: 1.4; }
+.nfcIcon, .successIcon, .errorIcon { font-size: 88px; }
+@keyframes pulse { 0%,100%{transform:scale(1);opacity:1} 50%{transform:scale(1.12);opacity:.7} }
+.nfcIcon { animation: pulse 1.4s infinite; }
+.nfcStatus { color: var(--gray-600); font-size: 18px; font-weight: 600; }
+.cancelBtn {
+  background: var(--gray-100); color: var(--gray-600);
+  border-radius: var(--radius-sm); padding: 16px 28px;
+  font-size: 18px; font-weight: 700; width: 100%; min-height: 56px;
+}
+.successBtn {
+  background: var(--green); color: white;
+  border-radius: var(--radius-sm); padding: 18px 28px;
+  font-size: 20px; font-weight: 800; width: 100%; min-height: 58px;
+}
+
+/* ── NFC / QR Mode Switch ── */
+.modeSwitch {
+  display: flex;
+  margin: 0 10px 8px;
+  background: var(--gray-100);
+  border-radius: var(--radius-sm);
+  padding: 3px;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.modeBtn {
+  flex: 1;
+  padding: 8px 3px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--gray-600);
+  background: transparent;
+  transition: background 0.15s, color 0.15s;
+  min-height: 38px;
+  white-space: nowrap;
+}
+.modeActive {
+  background: white;
+  color: var(--green);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+/* ── Manuelle Namenseingabe ── */
+.manualNameInput {
+  width: 100%;
+  border: 3px solid var(--gray-200);
+  border-radius: var(--radius-sm);
+  padding: 18px 20px;
+  font-size: 24px;
+  font-weight: 700;
+  text-align: center;
+  color: var(--gray-800);
+}
+.manualNameInput:focus {
+  outline: none;
+  border-color: var(--green);
+}
+
+/* ── QR Camera ── */
+.qrBox {
+  position: relative;
+  width: 300px;
+  height: 300px;
+  max-width: 80vw;
+  border-radius: 16px;
+  overflow: hidden;
+  background: black;
+  flex-shrink: 0;
+}
+.qrVideo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.qrFrame {
+  position: absolute;
+  inset: 20px;
+  border: 3px solid var(--yellow);
+  border-radius: 12px;
+  pointer-events: none;
+}
+.qrFrame::before, .qrFrame::after {
+  content: '';
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  border-color: var(--yellow);
+  border-style: solid;
+}
+.qrFrame::before {
+  top: -3px; left: -3px;
+  border-width: 4px 0 0 4px;
+  border-radius: 4px 0 0 0;
+}
+.qrFrame::after {
+  bottom: -3px; right: -3px;
+  border-width: 0 4px 4px 0;
+  border-radius: 0 0 4px 0;
+}
+
+/* Kindgerechtere Lesbarkeit und bessere Skalierung */
+.layout { min-height: 0; }
+.left, .right { min-height: 0; }
+.right { width: clamp(230px, 27vw, 300px); }
+.grid {
+  gap: clamp(8px, 1.4vw, 14px);
+}
+.articleImg {
+  padding-bottom: clamp(48px, 7vh, 72px);
+}
+.articleEmoji {
+  font-size: clamp(58px, 9vh, 86px);
+}
+.articleOverlay {
+  gap: 2px;
+  padding: clamp(24px, 4vh, 36px) 6px 8px;
+  background: linear-gradient(to top, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.7) 60%, transparent 100%);
+}
+.articleName {
+  font-size: clamp(15px, 2.2vw, 20px);
+  line-height: 1.12;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.articlePrice {
+  font-size: clamp(16px, 2vw, 20px);
+}
+.cartHeader { font-size: clamp(16px, 2vw, 19px); }
+.cartItemName { font-size: clamp(13px, 1.8vw, 16px); }
+.cartItemPrice { font-size: clamp(13px, 1.6vw, 15px); min-width: 62px; }
+.modeBtn { font-size: clamp(10px, 1.3vw, 12px); }
+
+@media (max-height: 650px) {
+  .left { padding: 8px; gap: 7px; }
+  .grid { gap: 8px; }
+  .letterBar { padding: 4px 6px; }
+  .letterBtn { min-height: 30px; padding: 4px 6px; }
+  .pagination button { min-height: 34px; padding: 6px 16px; }
+  .cartHeader { padding: 10px 14px; }
+  .cartItems { gap: 5px; padding: 7px; }
+  .payBtn { min-height: 46px; padding: 11px; }
+  .clearBtn { min-height: 34px; padding: 6px; }
+}
+
+@media (max-width: 760px) {
+  .layout {
+    flex-direction: column;
+    overflow: auto;
+  }
+  .left { min-height: 620px; }
+  .right {
+    width: auto;
+    min-height: 300px;
+    box-shadow: 0 -3px 16px rgba(0,0,0,0.08);
+  }
+}
+
+/* Noch kindgerechtere Kacheltexte */
+.articleName {
+  font-size: clamp(18px, 2.6vw, 24px);
+  font-weight: 900;
+  line-height: 1.08;
+}
+.articlePrice {
+  font-size: clamp(18px, 2.3vw, 24px);
+}
+.articleOverlay {
+  padding-top: clamp(28px, 4.5vh, 42px);
+  padding-bottom: 10px;
+}
+@media (max-height: 640px) {
+  .articleName { font-size: clamp(16px, 2.3vw, 20px); }
+  .articlePrice { font-size: clamp(16px, 2vw, 20px); }
+}
+
+
+/* ──────────────────────────────────────────────────────────────
+   Header fixed layout support
+   Die Kasse nimmt nur den sichtbaren Bereich UNTER der festen grünen
+   Navigation ein. Der Warenkorb wächst nicht mit seinem Inhalt;
+   nur die Artikelliste im Warenkorb scrollt.
+   ────────────────────────────────────────────────────────────── */
+.layout {
+  height: calc(100dvh - var(--nav-fixed-h));
+  min-height: 0;
+  max-height: calc(100dvh - var(--nav-fixed-h));
+  overflow: hidden;
+  align-items: stretch;
+}
+
+.left {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.right {
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.letterBar,
+.pagination,
+.cartHeader,
+.cartTotal,
+.modeSwitch,
+.payBtn,
+.clearBtn {
+  flex: 0 0 auto;
+}
+
+.grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.cartItems {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+.modeSwitch {
+  min-height: 44px;
+  max-height: 44px;
+  align-items: stretch;
+}
+
+.modeBtn {
+  min-height: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.payBtn {
+  min-height: 52px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.clearBtn {
+  min-height: 38px;
+  height: 38px;
+}
+
+@media (max-height: 650px) {
+  .modeSwitch {
+    min-height: 40px;
+    max-height: 40px;
+  }
+  .modeBtn {
+    min-height: 34px;
+    height: 34px;
+  }
+  .payBtn {
+    min-height: 46px;
+    height: 46px;
+  }
+  .clearBtn {
+    min-height: 34px;
+    height: 34px;
+  }
+}
+
+@media (max-width: 760px) {
+  .layout {
+    height: auto;
+    max-height: none;
+    overflow: visible;
+  }
+  .left {
+    height: 620px;
+    min-height: 620px;
+  }
+  .right {
+    height: 420px;
+    min-height: 420px;
+    max-height: 420px;
+  }
+}

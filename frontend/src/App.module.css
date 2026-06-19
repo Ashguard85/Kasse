@@ -1,0 +1,149 @@
+.app {
+  min-height: 100dvh;
+  height: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Fester grüner Header / feste Reiter ──────────────────────────────
+   Der Header bleibt auf Web und APK immer oben sichtbar. Der Inhalt
+   scrollt darunter; die Navigation selbst bleibt kompakt und kann bei
+   sehr kleinen Breiten horizontal scrollen, statt umzubrechen und die
+   Seite zu verdrücken. */
+.nav {
+  background: var(--green);
+  color: white;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  height: var(--nav-fixed-h);
+  min-height: var(--nav-fixed-h);
+  max-height: var(--nav-fixed-h);
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.22);
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  scrollbar-width: none;
+}
+.nav::-webkit-scrollbar { display: none; }
+
+.logo {
+  font-size: clamp(18px, 2.2vw, 22px);
+  font-weight: 900;
+  letter-spacing: -0.5px;
+  margin-right: 10px;
+  color: var(--yellow);
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.nav a {
+  color: rgba(255,255,255,0.78);
+  text-decoration: none;
+  font-weight: 800;
+  font-size: clamp(13px, 1.8vw, 16px);
+  padding: 8px clamp(9px, 1.5vw, 16px);
+  border-radius: var(--radius-sm);
+  transition: background 0.15s, color 0.15s;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.nav a:hover { background: rgba(255,255,255,0.1); color: white; }
+.nav a.active { background: var(--yellow); color: var(--green-dark); }
+
+/* NFC-Box Statusanzeige, rechts in der festen Nav */
+.nfcStatus {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(0,0,0,0.18);
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+  min-height: 42px;
+  color: white;
+  font-weight: 800;
+  font-size: clamp(12px, 1.6vw, 14px);
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.nfcStatus:hover { background: rgba(0,0,0,0.28); }
+.nfcDot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.nfcDotOn { background: #4ade80; box-shadow: 0 0 8px #4ade80; }
+.nfcDotOff { background: #f87171; }
+.nfcDotPending { background: var(--yellow); animation: nfcPulse 1s ease-in-out infinite; }
+@keyframes nfcPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+.nfcLabel { white-space: nowrap; }
+.nfcReconnect {
+  background: var(--yellow);
+  color: var(--green-dark);
+  font-size: 12px;
+  font-weight: 900;
+  padding: 3px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.main {
+  flex: 1 0 auto;
+  min-height: 100dvh;
+  padding-top: var(--nav-fixed-h);
+  overflow: visible;
+}
+
+@media (max-width: 860px) {
+  .logo { margin-right: 4px; }
+  .nav { justify-content: flex-start; }
+  .nfcStatus { margin-left: 6px; }
+}
+
+@media (max-width: 560px) {
+  .logo { display: none; }
+  .nav a { padding-left: 10px; padding-right: 10px; }
+  .nfcStatus { font-size: 12px; padding-left: 8px; padding-right: 8px; }
+}
+
+/* Portrait fallback message */
+@media (orientation: portrait) and (max-width: 700px) {
+  .portraitHint {
+    display: flex;
+  }
+}
+
+.portraitHint {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: var(--green);
+  color: white;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  font-size: 18px;
+  font-weight: 800;
+  z-index: 999;
+  text-align: center;
+  padding: 32px;
+}
+
+.portraitHint span { font-size: 56px; }
+

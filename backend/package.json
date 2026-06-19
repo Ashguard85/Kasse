@@ -1,0 +1,14 @@
+{
+  "name": "kasse-backend",
+  "version": "1.0.0",
+  "main": "server.js",
+  "dependencies": {
+    "better-sqlite3": "^9.4.3",
+    "cors": "^2.8.5",
+    "express": "^4.18.3",
+    "heic-convert": "^2.1.0",
+    "multer": "^1.4.5-lts.1",
+    "sharp": "^0.33.5",
+    "uuid": "^9.0.0"
+  }
+}

@@ -1,0 +1,173 @@
+.page {
+  display: flex;
+  height: 100%;
+  gap: 10px;
+  padding: 10px;
+  overflow: hidden;
+}
+
+.formPanel {
+  width: 260px;
+  flex-shrink: 0;
+  background: white;
+  border-radius: var(--radius);
+  padding: 16px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+.formPanel h3 { font-size: 16px; font-weight: 900; color: var(--gray-800); }
+
+.imageUpload {
+  width: 100%;
+  height: 120px;
+  border: 2px dashed var(--gray-200);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--gray-50);
+  transition: border-color 0.15s;
+}
+.imageUpload:hover { border-color: var(--green); }
+.imageUpload img { width: 100%; height: 100%; object-fit: cover; }
+.imagePlaceholder {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 6px; color: var(--gray-400); font-size: 28px;
+}
+.imagePlaceholder span { font-size: 12px; font-weight: 700; }
+
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field label {
+  font-size: 11px; font-weight: 800; color: var(--gray-600);
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.field input {
+  border: 2px solid var(--gray-200); border-radius: var(--radius-sm);
+  padding: 9px 11px; font-size: 14px; font-weight: 600; width: 100%;
+  min-height: 42px;
+}
+.field input:focus { outline: none; border-color: var(--green); }
+
+.btnRow { display: flex; gap: 7px; }
+.primaryBtn {
+  flex: 1; background: var(--green); color: white;
+  border-radius: var(--radius-sm); padding: 12px;
+  font-size: 14px; font-weight: 800; min-height: 46px;
+}
+.cancelBtn {
+  background: var(--gray-100); color: var(--gray-600);
+  border-radius: var(--radius-sm); padding: 12px 14px;
+  font-size: 13px; font-weight: 700; min-height: 46px;
+}
+
+.msg {
+  border-radius: var(--radius-sm); padding: 10px 12px;
+  font-size: 12px; font-weight: 700;
+}
+.msgOk { background: var(--green-light); color: var(--green); }
+.msgErr { background: var(--red-light); color: var(--red); }
+
+/* List */
+.listPanel {
+  flex: 1;
+  background: white;
+  border-radius: var(--radius);
+  padding: 16px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: hidden;
+}
+.listHeader {
+  display: flex; align-items: center;
+  justify-content: space-between; gap: 12px; flex-shrink: 0;
+}
+.listHeader h3 { font-size: 15px; font-weight: 900; color: var(--gray-800); white-space: nowrap; }
+.search {
+  border: 2px solid var(--gray-200); border-radius: var(--radius-sm);
+  padding: 8px 13px; font-size: 13px; font-weight: 600;
+  width: 200px; min-height: 40px;
+}
+.search:focus { outline: none; border-color: var(--green); }
+
+.list {
+  overflow-y: auto; flex: 1;
+  display: flex; flex-direction: column; gap: 6px;
+}
+
+.row {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--gray-50); border-radius: var(--radius-sm);
+  padding: 8px 10px; border: 2px solid transparent;
+  min-height: 54px;
+}
+.rowActive { border-color: var(--green); background: var(--green-light); }
+
+.rowImg {
+  width: 42px; height: 42px; border-radius: 9px;
+  overflow: hidden; background: var(--gray-200);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px; flex-shrink: 0;
+}
+.rowImg img { width: 100%; height: 100%; object-fit: cover; }
+.rowName { flex: 1; font-size: 14px; font-weight: 700; color: var(--gray-800); }
+.rowPrice {
+  font-size: 14px; font-weight: 800; color: var(--green);
+  min-width: 70px; text-align: right;
+}
+
+.editBtn, .delBtn, .eyeBtn {
+  background: var(--gray-100); border-radius: 8px;
+  width: 36px; height: 36px; font-size: 15px;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.editBtn:hover { background: var(--yellow); }
+.delBtn:hover { background: var(--red-light); }
+.eyeBtn:hover { background: var(--green-light); }
+
+/* Ausgeblendete Artikel: ganze Zeile gedimmt + kleines Label */
+.rowHidden { opacity: 0.55; }
+.rowHidden .rowImg { filter: grayscale(0.6); }
+.hiddenTag {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--gray-600);
+  background: var(--gray-200);
+  padding: 2px 7px;
+  border-radius: 6px;
+  vertical-align: middle;
+}
+
+/* Responsive Verwaltung: nichts wird abgeschnitten, Panels stapeln bei wenig Platz. */
+.page { min-height: 0; }
+.formPanel, .listPanel { min-height: 0; }
+.rowName { font-size: clamp(14px, 1.8vw, 17px); }
+.rowPrice { font-size: clamp(14px, 1.7vw, 16px); }
+
+@media (max-width: 820px) {
+  .page {
+    flex-direction: column;
+    height: auto;
+    min-height: 100%;
+    overflow-y: auto;
+  }
+  .formPanel {
+    width: 100%;
+    overflow: visible;
+  }
+  .listPanel {
+    min-height: 420px;
+  }
+  .listHeader {
+    flex-wrap: wrap;
+  }
+  .search { width: 100%; }
+}

@@ -1,0 +1,43 @@
+version: "3.9"
+
+services:
+  kasse-backend:
+    build:
+      context: https://github.com/Ashguard85/Kasse.git#main:backend
+    container_name: kasse-backend
+    restart: unless-stopped
+    ports:
+      - "3801:3801"
+    volumes:
+      - /home/buebi/docker/kasse/data:/app/data
+    networks:
+      - kasse-net
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:3801/api/articles').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  kasse-frontend:
+    build:
+      context: https://github.com/Ashguard85/Kasse.git#main:frontend
+    container_name: kasse-frontend
+    restart: unless-stopped
+    ports:
+      - "3800:80"
+    depends_on:
+      kasse-backend:
+        condition: service_healthy
+    networks:
+      - kasse-net
+
+networks:
+  kasse-net:
+    driver: bridge
