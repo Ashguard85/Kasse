@@ -6,6 +6,11 @@ import {
   setApiBase,
   getCloudflareAccessConfig,
   setCloudflareAccessConfig,
+  getDataMode,
+  setDataMode,
+  exportLocalData,
+  importLocalData,
+  resetLocalData,
 } from "../lib/api";
 
 // Anzeige-Infos für die vier Zahlungsmethoden
@@ -22,11 +27,13 @@ export default function Einstellungen() {
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState({ text: "", type: "" });
   const [serverUrl, setServerUrl] = useState(getApiBase());
+  const [dataMode, setDataModeState] = useState(getDataMode());
   const initialAccessConfig = getCloudflareAccessConfig();
   const [cfClientId, setCfClientId] = useState(initialAccessConfig.clientId);
   const [cfClientSecret, setCfClientSecret] = useState(initialAccessConfig.clientSecret);
   const [cfSecretHidden, setCfSecretHidden] = useState(Boolean(initialAccessConfig.clientSecret));
   const msgTimerRef = useRef(null);
+  const importFileRef = useRef(null);
 
   const showMsg = (text, type = "ok") => {
     if (msgTimerRef.current) clearTimeout(msgTimerRef.current);
@@ -34,22 +41,28 @@ export default function Einstellungen() {
     msgTimerRef.current = setTimeout(() => setMsg({ text: "", type: "" }), 3500);
   };
 
+  const loadPaymentSettings = async () => {
+    setLoading(true);
+    try {
+      const res = await apiFetch(`/api/settings/payment`);
+      if (!res.ok) throw new Error("Datenfehler");
+      const data = await res.json();
+      setEnabled(data.enabled);
+      setDefaultMode(data.default);
+      try { localStorage.setItem("kasseBleNfcEnabled", data.enabled?.bleNfc ? "1" : "0"); } catch {}
+      window.dispatchEvent(new CustomEvent("kasse:payment-settings-updated", { detail: data }));
+    } catch (e) {
+      showMsg(dataMode === "local" ? "Lokale Einstellungen konnten nicht geladen werden" : "Einstellungen konnten nicht geladen werden", "err");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    (async () => {
-      try {
-        const res = await apiFetch(`/api/settings/payment`);
-        if (!res.ok) throw new Error("Server-Fehler");
-        const data = await res.json();
-        setEnabled(data.enabled);
-        setDefaultMode(data.default);
-        try { localStorage.setItem("kasseBleNfcEnabled", data.enabled?.bleNfc ? "1" : "0"); } catch {}
-      } catch (e) {
-        showMsg("Einstellungen konnten nicht geladen werden", "err");
-      } finally {
-        setLoading(false);
-      }
-    })();
+    loadPaymentSettings();
     return () => { if (msgTimerRef.current) clearTimeout(msgTimerRef.current); };
+    // bewusst nur beim ersten Mount; beim Wechsel des Datenmodus laden wir manuell neu.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const toggleMethod = (id) => {
@@ -66,6 +79,54 @@ export default function Einstellungen() {
   };
 
   const activeCount = Object.values(enabled).filter(Boolean).length;
+
+  const changeDataMode = async (mode) => {
+    const next = setDataMode(mode);
+    setDataModeState(next);
+    showMsg(next === "local" ? "Lokaler Datenmodus aktiv – kein Server nötig." : "Servermodus aktiv – Docker/Cloudflare wird verwendet.");
+    window.setTimeout(loadPaymentSettings, 50);
+  };
+
+  const exportBackup = () => {
+    try {
+      const json = exportLocalData();
+      const blob = new Blob([json], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const date = new Date().toISOString().slice(0, 10);
+      a.href = url;
+      a.download = `kasse-backup-${date}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      showMsg("Backup exportiert ✓");
+    } catch (e) {
+      showMsg("Backup konnte nicht exportiert werden", "err");
+    }
+  };
+
+  const importBackup = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      importLocalData(text);
+      await loadPaymentSettings();
+      showMsg("Backup importiert ✓");
+    } catch (e) {
+      showMsg("Backup konnte nicht importiert werden", "err");
+    } finally {
+      if (event.target) event.target.value = "";
+    }
+  };
+
+  const resetLocalBackup = async () => {
+    if (!confirm("Lokale Daten wirklich zurücksetzen? Kunden, Guthaben und Verkäufe auf diesem Tablet gehen verloren.")) return;
+    resetLocalData();
+    await loadPaymentSettings();
+    showMsg("Lokale Daten zurückgesetzt");
+  };
 
   const saveServerUrl = () => {
     setApiBase(serverUrl);
@@ -131,7 +192,7 @@ export default function Einstellungen() {
       <div className={styles.card}>
         <h1 className={styles.title}>⚙️ Einstellungen</h1>
         <p className={styles.intro}>
-          Lege fest, welche Zahlungsmethoden angezeigt werden und wie die App deinen Kassenserver erreicht.
+          Lege fest, welche Zahlungsmethoden angezeigt werden und ob die App lokal auf dem Tablet oder mit deinem Kassenserver arbeitet.
         </p>
 
         <h2 className={styles.sectionTitle}>💳 Zahlungsmethoden</h2>
@@ -174,7 +235,49 @@ export default function Einstellungen() {
 
         <div className={styles.settingsDivider} />
 
-        <h2 className={styles.sectionTitle}>🔧 Server-Stammdaten</h2>
+        <h2 className={styles.sectionTitle}>💾 Daten speichern</h2>
+        <div className={styles.serverBox}>
+          <h2>{dataMode === "local" ? "📱 Lokal auf diesem Tablet" : "🌐 Server / Docker"}</h2>
+          <p>
+            Im Lokalmodus laufen Kasse, Karten und Artikel ohne Docker-Server direkt auf dem Tablet. Im Servermodus nutzt die App dein Docker-Backend.
+          </p>
+          <div className={styles.modeChoice}>
+            <button
+              type="button"
+              className={`${styles.modeChoiceBtn} ${dataMode === "local" ? styles.modeChoiceActive : ""}`}
+              onClick={() => changeDataMode("local")}
+            >
+              📱 Lokal speichern
+              <span>funktioniert offline und ohne Server</span>
+            </button>
+            <button
+              type="button"
+              className={`${styles.modeChoiceBtn} ${dataMode === "server" ? styles.modeChoiceActive : ""}`}
+              onClick={() => changeDataMode("server")}
+            >
+              🌐 Server verwenden
+              <span>Docker/NAS/Cloudflare nutzen</span>
+            </button>
+          </div>
+
+          {dataMode === "local" && (
+            <div className={styles.localTools}>
+              <p><b>Backup:</b> Deine lokalen Daten liegen auf diesem Tablet. Exportiere ab und zu eine Sicherung.</p>
+              <div className={styles.serverActions}>
+                <button onClick={exportBackup}>Backup exportieren</button>
+                <button className={styles.secondaryBtn} onClick={() => importFileRef.current?.click()}>Backup importieren</button>
+                <button className={styles.dangerBtn} onClick={resetLocalBackup}>Lokal zurücksetzen</button>
+              </div>
+              <input ref={importFileRef} type="file" accept="application/json,.json" hidden onChange={importBackup} />
+            </div>
+          )}
+        </div>
+
+        {dataMode === "server" && (
+          <>
+            <div className={styles.settingsDivider} />
+
+            <h2 className={styles.sectionTitle}>🔧 Server-Stammdaten</h2>
 
         <div className={styles.serverBox}>
           <h2>🔗 Server-Verbindung</h2>
@@ -241,6 +344,9 @@ export default function Einstellungen() {
             Hinweis: Diese Daten liegen auf dem Tablet. Für ein Kindergerät ist das praktisch, aber nicht hochsicher.
           </p>
         </div>
+
+          </>
+        )}
 
         {msg.text && (
           <div className={`${styles.msg} ${msg.type === "err" ? styles.msgErr : styles.msgOk}`}>

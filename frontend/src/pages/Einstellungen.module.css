@@ -189,3 +189,96 @@
   .methodRow { align-items: flex-start; flex-wrap: wrap; }
   .methodControls { width: 100%; justify-content: space-between; }
 }
+
+.modeChoice {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.modeChoiceBtn {
+  text-align: left;
+  padding: 14px;
+  border-radius: var(--radius-sm);
+  border: 2px solid var(--gray-200);
+  background: white;
+  color: var(--gray-800);
+  font-size: clamp(15px, 1.8vw, 18px);
+  font-weight: 900;
+  min-height: 76px;
+}
+
+.modeChoiceBtn span {
+  display: block;
+  margin-top: 5px;
+  font-size: 12px;
+  line-height: 1.25;
+  font-weight: 800;
+  color: var(--gray-500);
+}
+
+.modeChoiceActive {
+  border-color: var(--green);
+  background: var(--green-light);
+  color: var(--green-dark, #047857);
+}
+
+.localTools {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--gray-200);
+}
+
+.dangerBtn {
+  background: var(--red, #dc2626) !important;
+  color: white !important;
+}
+
+@media (max-width: 760px) {
+  .modeChoice { grid-template-columns: 1fr; }
+}
+
+.printerTopRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.checkRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: clamp(15px, 1.8vw, 18px);
+  font-weight: 900;
+  color: var(--gray-800);
+}
+
+.checkRow input {
+  width: 24px;
+  height: 24px;
+  accent-color: var(--green);
+}
+
+.printerRow {
+  margin-top: 12px;
+}
+
+.printerRow select {
+  width: 100%;
+  padding: 13px;
+  border-radius: 10px;
+  border: 2px solid var(--gray-200);
+  background: white;
+  color: var(--gray-800);
+  font-size: clamp(14px, 1.7vw, 16px);
+  font-weight: 800;
+}
+
+.printerRow select:focus {
+  outline: none;
+  border-color: var(--green);
+}

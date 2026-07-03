@@ -498,6 +498,127 @@
   .articlePrice { font-size: clamp(16px, 2vw, 20px); }
 }
 
+/* ──────────────────────────────────────────────────────────────
+   APK Cash screen fixed layout
+   The shop view must NOT grow with the cart content. The page uses
+   a fixed viewport-height split: articles on the left, cart on the
+   right. Only the cart item list scrolls. Payment methods, total and
+   action buttons keep their size and stay visible.
+   ────────────────────────────────────────────────────────────── */
+.layout {
+  height: calc(100dvh - var(--nav-fixed-h));
+  min-height: 0;
+  max-height: calc(100dvh - var(--nav-fixed-h));
+  overflow: hidden;
+  align-items: stretch;
+}
+
+.left {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.right {
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.letterBar,
+.pagination,
+.cartHeader,
+.cartTotal,
+.modeSwitch,
+.payBtn,
+.clearBtn {
+  flex: 0 0 auto;
+}
+
+.grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.cartItems {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+.modeSwitch {
+  min-height: 44px;
+  max-height: 44px;
+  align-items: stretch;
+}
+
+.modeBtn {
+  min-height: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.payBtn {
+  min-height: 52px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.clearBtn {
+  min-height: 38px;
+  height: 38px;
+}
+
+@media (max-height: 650px) {
+  .layout {
+    height: calc(100dvh - var(--nav-fixed-h));
+    max-height: calc(100dvh - var(--nav-fixed-h));
+  }
+  .modeSwitch {
+    min-height: 40px;
+    max-height: 40px;
+  }
+  .modeBtn {
+    min-height: 34px;
+    height: 34px;
+  }
+  .payBtn {
+    min-height: 46px;
+    height: 46px;
+  }
+  .clearBtn {
+    min-height: 34px;
+    height: 34px;
+  }
+}
+
+@media (max-width: 760px) {
+  .layout {
+    height: auto;
+    max-height: none;
+    overflow: visible;
+  }
+  .left {
+    height: 620px;
+    min-height: 620px;
+  }
+  .right {
+    height: 420px;
+    min-height: 420px;
+    max-height: 420px;
+  }
+}
+
 
 /* ──────────────────────────────────────────────────────────────
    Header fixed layout support
@@ -613,4 +734,48 @@
     min-height: 420px;
     max-height: 420px;
   }
+}
+
+.printBtn {
+  background: var(--blue, #2563eb);
+  color: white;
+  border-radius: var(--radius-sm);
+  padding: 16px 28px;
+  font-size: 20px;
+  font-weight: 900;
+  width: 100%;
+  min-height: 56px;
+}
+.printBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.receiptStatus {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--gray-100);
+  color: var(--gray-700) !important;
+  font-size: 15px !important;
+  font-weight: 900 !important;
+}
+.receiptHint {
+  margin-top: -10px;
+  color: var(--gray-500) !important;
+  font-size: 13px !important;
+  font-weight: 800 !important;
+}
+.reprintBtn {
+  margin: 0 10px 10px;
+  background: var(--blue, #2563eb);
+  color: white;
+  border-radius: var(--radius-sm);
+  padding: 8px;
+  font-size: 12px;
+  font-weight: 800;
+  min-height: 38px;
+  flex: 0 0 auto;
+}
+.reprintBtn:disabled {
+  opacity: 0.6;
 }

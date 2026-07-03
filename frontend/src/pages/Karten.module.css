@@ -574,3 +574,33 @@
   .overviewActions, .scanBtn, .closeBtn, .noPrint { display: none !important; }
   .overviewModal { box-shadow: none; max-height: none; width: 100%; }
 }
+
+.detailActions {
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.dangerBtn {
+  min-height: 44px;
+  border-radius: 10px;
+  padding: 10px 14px;
+  background: var(--red-light);
+  color: var(--red);
+  font-size: clamp(14px, 1.7vw, 16px);
+  font-weight: 900;
+}
+.dangerBtn:hover { background: var(--red); color: white; }
+.txNote small {
+  display: block;
+  margin-top: 3px;
+  color: var(--gray-400);
+  font-size: 11px;
+  font-weight: 900;
+}
+@media (max-width: 700px) {
+  .detailActions { width: 100%; justify-content: stretch; }
+  .detailActions button { flex: 1 1 100%; }
+}

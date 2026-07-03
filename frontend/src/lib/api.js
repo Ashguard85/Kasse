@@ -1,6 +1,10 @@
+import { Capacitor } from "@capacitor/core";
+import { localApiFetch, exportLocalData as exportLocalDbData, importLocalData as importLocalDbData, resetLocalData as resetLocalDbData } from "./localDb";
+
 const API_BASE_KEY = "kasseApiBase";
 const CF_CLIENT_ID_KEY = "kasseCloudflareAccessClientId";
 const CF_CLIENT_SECRET_KEY = "kasseCloudflareAccessClientSecret";
+const DATA_MODE_KEY = "kasseDataMode"; // "local" | "server"
 
 function safeGet(key) {
   try { return localStorage.getItem(key) || ""; } catch { return ""; }
@@ -13,6 +17,44 @@ function safeSet(key, value) {
   } catch {
     // localStorage kann blockiert sein.
   }
+}
+
+
+export function getDefaultDataMode() {
+  // Native APK soll ohne Server funktionieren. Die Webapp bleibt standardmässig im Servermodus.
+  try { return Capacitor.isNativePlatform() ? "local" : "server"; } catch { return "server"; }
+}
+
+export function getDataMode() {
+  const saved = safeGet(DATA_MODE_KEY);
+  return saved === "local" || saved === "server" ? saved : getDefaultDataMode();
+}
+
+export function setDataMode(value) {
+  const mode = value === "local" ? "local" : "server";
+  safeSet(DATA_MODE_KEY, mode);
+  window.dispatchEvent(new CustomEvent("kasse:data-mode-updated", { detail: { mode } }));
+  return mode;
+}
+
+export function isLocalDataMode() {
+  return getDataMode() === "local";
+}
+
+export function exportLocalData() {
+  return exportLocalDbData();
+}
+
+export function importLocalData(jsonText) {
+  const data = importLocalDbData(jsonText);
+  window.dispatchEvent(new CustomEvent("kasse:local-data-updated"));
+  return data;
+}
+
+export function resetLocalData() {
+  const data = resetLocalDbData();
+  window.dispatchEvent(new CustomEvent("kasse:local-data-updated"));
+  return data;
 }
 
 export function getApiBase() {
@@ -47,7 +89,8 @@ export function hasCloudflareAccessConfig() {
 
 export function api(path) {
   const p = path.startsWith("/") ? path : `/${path}`;
-  return `${getApiBase()}${p}`;
+  const base = getApiBase();
+  return `${base}${p}`;
 }
 
 export function apiHeaders(extraHeaders = {}) {
@@ -62,7 +105,11 @@ export function apiHeaders(extraHeaders = {}) {
   return headers;
 }
 
-export function apiFetch(path, options = {}) {
+export async function apiFetch(path, options = {}) {
+  if (isLocalDataMode()) {
+    return localApiFetch(path, options);
+  }
+
   const { headers, ...rest } = options;
   return fetch(api(path), {
     ...rest,
