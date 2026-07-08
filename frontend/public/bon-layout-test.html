@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Noemi's Lädeli – Bon-Layout-Test</title>
+  <style>
+    :root { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #111827; }
+    body { margin: 0; padding: 24px; background: #f3f4f6; }
+    .wrap { max-width: 720px; margin: 0 auto; display: grid; gap: 16px; }
+    .panel { background: white; border-radius: 18px; padding: 18px; box-shadow: 0 10px 30px rgba(0,0,0,.08); }
+    h1 { margin: 0 0 8px; font-size: 24px; }
+    p { margin: 0 0 12px; line-height: 1.45; color: #4b5563; }
+    button { border: 0; border-radius: 12px; padding: 12px 16px; font-weight: 900; background: #0ea5a4; color: white; cursor: pointer; }
+    textarea { width: 100%; min-height: 220px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; line-height: 1.35; border: 2px solid #e5e7eb; border-radius: 12px; padding: 12px; box-sizing: border-box; }
+    .receipt { width: 58mm; min-height: 120mm; background: white; color: #000; padding: 5mm 4mm; box-sizing: border-box; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; line-height: 1.25; white-space: pre-wrap; border: 1px dashed #9ca3af; }
+    .hint { font-size: 13px; color: #6b7280; }
+    @page { size: 58mm auto; margin: 0; }
+    @media print {
+      body { background: white; padding: 0; }
+      .panel:not(.printarea), .actions { display: none !important; }
+      .wrap { max-width: none; margin: 0; display: block; }
+      .printarea { padding: 0; box-shadow: none; border-radius: 0; }
+      .receipt { border: 0; width: 58mm; padding: 4mm; }
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="panel">
+      <h1>Bon-Layout-Test</h1>
+      <p>Die eigentliche Layout-Funktion ist jetzt direkt in der App im Reiter <b>Drucker</b>. Diese Seite ist nur noch eine einfache Einzelvorschau.</p>
+      <textarea id="input"></textarea>
+      <div class="actions" style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
+        <button onclick="updatePreview()">Vorschau aktualisieren</button>
+        <button onclick="window.print()">Auf lokalem Drucker testen</button>
+      </div>
+      <p class="hint">Tipp: Für die bessere Vorschau nutze in der App den Reiter Drucker → Live-Vorschau.</p>
+    </section>
+
+    <section class="panel printarea">
+      <pre id="receipt" class="receipt"></pre>
+    </section>
+  </main>
+  <script>
+    const defaults = {
+      shopName: "Noemi's Lädeli",
+      subtitle: "Kassenzettel",
+      footerText: "Danke fürs Einkaufen!",
+      lineWidth: 32,
+      showDate: true,
+      showPayment: true,
+      showCustomer: true,
+      showBalance: true,
+      showItemQuantity: true,
+      showUnitPrice: true,
+      itemSpacing: "compact"
+    };
+    function clean(v) {
+      return String(v || "")
+        .replaceAll("ä", "ae").replaceAll("ö", "oe").replaceAll("ü", "ue")
+        .replaceAll("Ä", "Ae").replaceAll("Ö", "Oe").replaceAll("Ü", "Ue")
+        .replaceAll("ß", "ss").replaceAll("’", "'");
+    }
+    function center(text, width) {
+      const s = clean(text).slice(0, width);
+      return " ".repeat(Math.max(0, Math.floor((width - s.length) / 2))) + s;
+    }
+    function twoCols(left, right, width) {
+      const r = clean(right);
+      const l = clean(left).slice(0, Math.max(1, width - r.length - 1));
+      return l + " ".repeat(Math.max(1, width - l.length - r.length)) + r;
+    }
+    function build() {
+      let layout = defaults;
+      try { layout = { ...defaults, ...JSON.parse(localStorage.getItem("kasseReceiptLayoutSettings") || "{}") }; } catch {}
+      const w = [28,30,32].includes(Number(layout.lineWidth)) ? Number(layout.lineWidth) : 32;
+      const lines = [];
+      if (layout.shopName) lines.push(center(layout.shopName, w));
+      if (layout.subtitle) lines.push(center(layout.subtitle, w));
+      lines.push("-".repeat(w));
+      if (layout.showDate) lines.push("23.06.2026, 14:30");
+      lines.push("");
+      lines.push(twoCols("Apfel", "1.00", w));
+      lines.push(twoCols(layout.showItemQuantity ? "2x Saft" : "Saft", "5.00", w));
+      if (layout.showUnitPrice) lines.push("  a CHF 2.50");
+      lines.push(twoCols("Keks", "0.80", w));
+      lines.push("-".repeat(w));
+      lines.push(twoCols("Total CHF", "6.80", w));
+      lines.push("");
+      if (layout.showPayment) lines.push("Zahlung: NFC-Box");
+      if (layout.showCustomer) lines.push("Kunde: Testkunde");
+      if (layout.showBalance) lines.push("Restguthaben: CHF 12.50");
+      if (layout.footerText) { lines.push(""); lines.push(center(layout.footerText, w)); }
+      lines.push("");
+      return lines.join("\n");
+    }
+    function updatePreview() {
+      document.getElementById('receipt').textContent = document.getElementById('input').value;
+    }
+    document.getElementById('input').value = build();
+    updatePreview();
+  </script>
+</body>
+</html>

@@ -12,7 +12,7 @@ services:
       - kasse-net
     restart: unless-stopped
     healthcheck:
-      # Fix #1 (Review 3): wget ist in node:20-bookworm-slim nicht installiert.
+      # wget ist in node:20-bookworm-slim nicht installiert.
       # node selbst ist immer da, daher nutzen wir das eingebaute fetch() statt wget.
       test:
         [

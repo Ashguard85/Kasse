@@ -33,12 +33,12 @@ app.use(cors({
     "Cf-Access-Jwt-Assertion",
   ],
 }));
-app.use(express.json());
+app.use(express.json({ limit: "8mb" }));
 app.use("/uploads", express.static(UPLOADS_PATH));
 
 // ── Database ──────────────────────────────────────────────────────────────────
 const db = new Database(DB_PATH);
-db.pragma("foreign_keys = ON"); // Fix #3: ohne das ignoriert SQLite ON DELETE CASCADE
+db.pragma("foreign_keys = ON"); // ohne das ignoriert SQLite ON DELETE CASCADE
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS articles (
@@ -78,12 +78,33 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now'))
   );
 
+  -- Einzelne verkaufte Artikel je Einkauf: Basis für Statistik.
+  CREATE TABLE IF NOT EXISTS sale_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+    customer_id INTEGER REFERENCES customers(id) ON DELETE SET NULL,
+    article_id INTEGER,
+    article_name TEXT NOT NULL,
+    quantity INTEGER NOT NULL DEFAULT 1,
+    unit_price REAL NOT NULL DEFAULT 0,
+    total REAL NOT NULL DEFAULT 0,
+    sold_at TEXT DEFAULT (datetime('now'))
+  );
+
   -- App-Einstellungen als einfache Key-Value-Ablage (gemeinsam für alle Geräte)
   CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
   );
 `);
+
+try {
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_sale_items_sold_at ON sale_items(sold_at);
+    CREATE INDEX IF NOT EXISTS idx_sale_items_article_name ON sale_items(article_name);
+    CREATE INDEX IF NOT EXISTS idx_transactions_customer_created ON transactions(customer_id, created_at);
+  `);
+} catch (e) { console.log("Index-Migration skip:", e.message); }
 
 // ── Migration von altem Schema (nfc_cards) falls vorhanden ───────────────────
 try {
@@ -388,6 +409,109 @@ app.put("/api/settings/payment", (req, res) => {
   res.json({ enabled: cleanEnabled, default: def });
 });
 
+
+// ── Settings: Bondrucker / Bonlayout (gemeinsam für Web + APK im Servermodus) ──
+const PRINTER_SETTINGS_KEY = "printer_settings";
+const RECEIPT_LAYOUT_SETTINGS_KEY = "receipt_layout_settings";
+
+const DEFAULT_PRINTER_SETTINGS = { enabled: false, address: "", name: "" };
+
+const DEFAULT_RECEIPT_LAYOUT_SETTINGS = {
+  shopName: "Noemi's Lädeli",
+  subtitle: "Kassenzettel",
+  footerText: "Danke fürs Einkaufen!",
+  lineWidth: 32,
+  previewFontSize: "large",
+  itemSpacing: "compact",
+  printMode: "image",
+  imagePaddingPx: 0,
+  textStyle: "bold",
+  codePage: "auto",
+  printLogo: false,
+  logoDataUrl: "",
+  logoWidthPx: 320,
+  logoMaxHeightPx: 320,
+  showDate: true,
+  showPayment: true,
+  showCustomer: true,
+  showBalance: true,
+  showItemQuantity: true,
+  showUnitPrice: true,
+};
+
+function getJsonSetting(key, fallback) {
+  const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(key);
+  if (!row) return fallback;
+  try {
+    return { ...fallback, ...JSON.parse(row.value) };
+  } catch {
+    return fallback;
+  }
+}
+
+function saveJsonSetting(key, value) {
+  const json = JSON.stringify(value);
+  db.prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?")
+    .run(key, json, json);
+  return value;
+}
+
+function sanitizePrinterSettings(input = {}) {
+  return {
+    enabled: input.enabled === true,
+    address: String(input.address || "").slice(0, 120),
+    name: String(input.name || "").slice(0, 120),
+  };
+}
+
+function sanitizeReceiptLayoutSettings(input = {}) {
+  const merged = { ...DEFAULT_RECEIPT_LAYOUT_SETTINGS, ...(input || {}) };
+  const oneOf = (value, allowed, fallback) => allowed.includes(value) ? value : fallback;
+  const numOneOf = (value, allowed, fallback) => {
+    const n = Number(value);
+    return allowed.includes(n) ? n : fallback;
+  };
+  return {
+    ...merged,
+    shopName: String(merged.shopName || "").slice(0, 40),
+    subtitle: String(merged.subtitle || "").slice(0, 40),
+    footerText: String(merged.footerText || "").slice(0, 60),
+    lineWidth: numOneOf(merged.lineWidth, [28, 30, 32], DEFAULT_RECEIPT_LAYOUT_SETTINGS.lineWidth),
+    previewFontSize: oneOf(merged.previewFontSize, ["small", "normal", "large"], DEFAULT_RECEIPT_LAYOUT_SETTINGS.previewFontSize),
+    itemSpacing: oneOf(merged.itemSpacing, ["compact", "normal", "wide"], DEFAULT_RECEIPT_LAYOUT_SETTINGS.itemSpacing),
+    printMode: oneOf(merged.printMode, ["image", "text"], DEFAULT_RECEIPT_LAYOUT_SETTINGS.printMode),
+    imagePaddingPx: numOneOf(merged.imagePaddingPx, [0, 4, 8, 12, 16], DEFAULT_RECEIPT_LAYOUT_SETTINGS.imagePaddingPx),
+    textStyle: oneOf(merged.textStyle, ["normal", "small", "bold", "large", "largeBold"], DEFAULT_RECEIPT_LAYOUT_SETTINGS.textStyle),
+    codePage: oneOf(merged.codePage, ["auto", "iso885915", "cp858", "cp850", "windows1252", "pc936", "gb18030", "replace"], DEFAULT_RECEIPT_LAYOUT_SETTINGS.codePage),
+    printLogo: merged.printLogo === true,
+    logoDataUrl: String(merged.logoDataUrl || "").startsWith("data:image/") ? String(merged.logoDataUrl) : "",
+    logoWidthPx: numOneOf(merged.logoWidthPx, [240, 280, 320, 360, 384], DEFAULT_RECEIPT_LAYOUT_SETTINGS.logoWidthPx),
+    logoMaxHeightPx: numOneOf(merged.logoMaxHeightPx, [130, 180, 220, 260, 320, 384], DEFAULT_RECEIPT_LAYOUT_SETTINGS.logoMaxHeightPx),
+    showDate: merged.showDate !== false,
+    showPayment: merged.showPayment !== false,
+    showCustomer: merged.showCustomer !== false,
+    showBalance: merged.showBalance !== false,
+    showItemQuantity: merged.showItemQuantity !== false,
+    showUnitPrice: merged.showUnitPrice !== false,
+  };
+}
+
+app.get("/api/settings/printer", (req, res) => {
+  res.json(sanitizePrinterSettings(getJsonSetting(PRINTER_SETTINGS_KEY, DEFAULT_PRINTER_SETTINGS)));
+});
+
+app.put("/api/settings/printer", (req, res) => {
+  res.json(saveJsonSetting(PRINTER_SETTINGS_KEY, sanitizePrinterSettings(req.body || {})));
+});
+
+app.get("/api/settings/receipt-layout", (req, res) => {
+  res.json(sanitizeReceiptLayoutSettings(getJsonSetting(RECEIPT_LAYOUT_SETTINGS_KEY, DEFAULT_RECEIPT_LAYOUT_SETTINGS)));
+});
+
+app.put("/api/settings/receipt-layout", (req, res) => {
+  res.json(saveJsonSetting(RECEIPT_LAYOUT_SETTINGS_KEY, sanitizeReceiptLayoutSettings(req.body || {})));
+});
+
 // ── Articles ──────────────────────────────────────────────────────────────────
 // ?includeHidden=1 liefert auch ausgeblendete Artikel (für die Artikelverwaltung).
 // Ohne den Parameter werden ausgeblendete Artikel weggelassen (für die Kasse).
@@ -420,7 +544,7 @@ app.put("/api/articles/:id/visibility", (req, res) => {
 
 app.post("/api/articles", upload.single("image"), handleUploadError, async (req, res) => {
   const { name, price } = req.body;
-  // Fix #6 (Review 2): Preise müssen > 0 sein, sonst widerspricht es dem Checkout (total > 0)
+  // Preise müssen > 0 sein, sonst widerspricht es dem Checkout (total > 0)
   const validPrice = positiveNumber(price);
   if (!name || validPrice === null) return res.status(400).json({ error: "Name und ein gültiger Preis (> 0) sind erforderlich" });
   try {
@@ -470,7 +594,7 @@ function nonNegativeNumber(value) {
   return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
-// Fix #7 (Review 3): SQLite REAL kann bei vielen Additionen/Subtraktionen mit
+// SQLite REAL kann bei vielen Additionen/Subtraktionen mit
 // Centbeträgen Rundungsartefakte erzeugen (z.B. 2.220446049250313e-16). Nach
 // jeder Guthaben-Änderung wird hart auf 2 Nachkommastellen gerundet.
 function money(value) {
@@ -484,7 +608,7 @@ function getCustomerWithTokens(customerId) {
   return { ...customer, tokens };
 }
 
-// Fix #4 (Review 3): case-insensitiver Fallback gilt NUR für NFC-Tokens.
+// case-insensitiver Fallback gilt NUR für NFC-Tokens.
 // Vorher matchte UPPER(value) auch QR-Codes — das ist gefährlich, weil QR-Werte
 // bewusst case-sensitiv sein können (z.B. Kunde A = "abc", Kunde B = "ABC" sind
 // zwei unterschiedliche, gültige UNIQUE-Werte). Ein breiter case-insensitiver
@@ -514,7 +638,7 @@ app.get("/api/customers", (req, res) => {
 });
 
 // Create new customer, optionally with first token(s)
-// Fix #2 (Review 3): Kunde + Tokens werden in einer einzigen DB-Transaktion angelegt.
+// Kunde + Tokens werden in einer einzigen DB-Transaktion angelegt.
 // Vorher konnte bei "Beides" und einem bereits vergebenen QR-Code ein "Geisterkunde"
 // ohne Tokens in der DB übrigbleiben, obwohl die API einen Fehler zurückgab.
 app.post("/api/customers", (req, res) => {
@@ -528,7 +652,7 @@ app.post("/api/customers", (req, res) => {
     const customer = db.transaction(() => {
       const result = db.prepare("INSERT INTO customers (name, balance) VALUES (?, ?)").run(name, startBalance);
       const customerId = result.lastInsertRowid;
-      // Fix #5 (Review 2): NFC-UID serverseitig normalisieren (Großbuchstaben),
+      // NFC-UID serverseitig normalisieren (Großbuchstaben),
       // damit Groß-/Kleinschreibung nie zu "Karte nicht gefunden" führt
       if (nfc_uid) {
         db.prepare("INSERT INTO payment_tokens (customer_id, type, value) VALUES (?, 'nfc', ?)").run(customerId, String(nfc_uid).toUpperCase());
@@ -563,6 +687,13 @@ app.delete("/api/customers/:id", (req, res) => {
   res.json({ success: true });
 });
 
+app.delete("/api/customers/:id/transactions", (req, res) => {
+  const customer = db.prepare("SELECT * FROM customers WHERE id = ?").get(req.params.id);
+  if (!customer) return res.status(404).json({ error: "Kunde nicht gefunden" });
+  db.prepare("DELETE FROM transactions WHERE customer_id = ?").run(req.params.id);
+  res.json({ success: true });
+});
+
 // ── Payment Tokens (NFC-Karten / QR-Codes) ───────────────────────────────────
 
 // Add a new token to an existing customer (e.g. "Mami bekommt jetzt auch einen QR-Code")
@@ -572,7 +703,7 @@ app.post("/api/customers/:id/tokens", (req, res) => {
   if (!["nfc", "qr"].includes(type)) return res.status(400).json({ error: "type muss 'nfc' oder 'qr' sein" });
   const customer = db.prepare("SELECT * FROM customers WHERE id = ?").get(req.params.id);
   if (!customer) return res.status(404).json({ error: "Kunde nicht gefunden" });
-  // Fix #5 (Review 2): NFC-Werte serverseitig normalisieren, unabhängig davon, ob das Frontend das schon tat
+  // NFC-Werte serverseitig normalisieren, unabhängig davon, ob das Frontend das schon tat
   const normalizedValue = type === "nfc" ? String(value).toUpperCase() : value;
   try {
     db.prepare("INSERT INTO payment_tokens (customer_id, type, value) VALUES (?, ?, ?)").run(req.params.id, type, normalizedValue);
@@ -632,7 +763,7 @@ app.post("/api/customers/:id/topup", (req, res) => {
 
   const doTopup = db.transaction(() => {
     db.prepare("UPDATE customers SET balance = balance + ? WHERE id = ?").run(amount, req.params.id);
-    // Fix #7 (Review 3): nach der Addition hart auf Centbetrag runden, gegen Float-Drift
+    // nach der Addition hart auf Centbetrag runden, gegen Float-Drift
     const fresh = db.prepare("SELECT balance FROM customers WHERE id = ?").get(req.params.id);
     db.prepare("UPDATE customers SET balance = ? WHERE id = ?").run(money(fresh.balance), req.params.id);
     db.prepare("INSERT INTO transactions (customer_id, amount, type, note) VALUES (?, ?, 'topup', 'Aufladung')").run(req.params.id, amount);
@@ -642,14 +773,47 @@ app.post("/api/customers/:id/topup", (req, res) => {
   res.json(getCustomerWithTokens(req.params.id));
 });
 
+
+function normalizeCheckoutItems(body) {
+  const raw = Array.isArray(body?.line_items) ? body.line_items : [];
+  if (raw.length) {
+    return raw
+      .map((item) => {
+        const quantity = Math.max(1, Math.round(Number(item.qty ?? item.quantity ?? 1)));
+        const unitPrice = money(Number(item.unit_price ?? item.price ?? 0));
+        const name = String(item.name || item.article_name || "Artikel").trim() || "Artikel";
+        return {
+          article_id: item.article_id != null ? Number(item.article_id) : null,
+          article_name: name.slice(0, 120),
+          quantity,
+          unit_price: unitPrice,
+          total: money(unitPrice * quantity),
+        };
+      })
+      .filter((item) => item.quantity > 0 && item.article_name);
+  }
+
+  // Fallback für ältere APK/Webapp-Versionen: "Apfel x2, Saft x1" aus dem Notiztext lesen.
+  return String(body?.items || "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const m = part.match(/^(.*?)\s+x(\d+)$/i);
+      const articleName = (m ? m[1] : part).trim() || "Artikel";
+      const quantity = m ? Math.max(1, Number(m[2])) : 1;
+      return { article_id: null, article_name: articleName.slice(0, 120), quantity, unit_price: 0, total: 0 };
+    });
+}
+
 // ── Checkout — accepts NFC uid, QR code, or customer id ──────────────────────
-// Fix #5 (Review 2): atomare DB-Transaktion mit erneuter Balance-Prüfung innerhalb der Transaktion,
+// atomare DB-Transaktion mit erneuter Balance-Prüfung innerhalb der Transaktion,
 // damit zwei nahezu gleichzeitige Zahlungen nicht doppelt abbuchen können.
 app.post("/api/checkout", (req, res) => {
   const { card_uid, items } = req.body;
   const rawTotal = positiveNumber(req.body.total);
   if (!card_uid || rawTotal === null) return res.status(400).json({ error: "card_uid und ein gültiger Betrag (> 0) sind erforderlich" });
-  // Fix #1 (Review 4): total VOR dem Balance-Vergleich runden. Ohne das kann das
+  // total VOR dem Balance-Vergleich runden. Ohne das kann das
   // Frontend z.B. 0.30000000000000004 statt 0.30 schicken (0.1+0.2 in JS), und ein
   // Kunde mit exakt 0.30 CHF Guthaben würde fälschlich abgelehnt (0.3 < 0.30...4).
   const total = money(rawTotal);
@@ -673,10 +837,22 @@ app.post("/api/checkout", (req, res) => {
         throw err;
       }
       db.prepare("UPDATE customers SET balance = balance - ? WHERE id = ?").run(total, customer.id);
-      // Fix #7 (Review 3): nach der Subtraktion hart auf Centbetrag runden
+      // nach der Subtraktion hart auf Centbetrag runden
       const afterSub = db.prepare("SELECT balance FROM customers WHERE id = ?").get(customer.id);
       db.prepare("UPDATE customers SET balance = ? WHERE id = ?").run(money(afterSub.balance), customer.id);
-      db.prepare("INSERT INTO transactions (customer_id, amount, type, note) VALUES (?, ?, 'purchase', ?)").run(customer.id, total, `Einkauf: ${items}`);
+      const lineItems = normalizeCheckoutItems(req.body);
+      const noteItems = lineItems.length
+        ? lineItems.map((item) => `${item.article_name} x${item.quantity}`).join(", ")
+        : String(items || "");
+      const tx = db.prepare("INSERT INTO transactions (customer_id, amount, type, note) VALUES (?, ?, 'purchase', ?)")
+        .run(customer.id, total, `Einkauf: ${noteItems}`);
+      const insItem = db.prepare(`
+        INSERT INTO sale_items (transaction_id, customer_id, article_id, article_name, quantity, unit_price, total)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+      lineItems.forEach((item) => {
+        insItem.run(tx.lastInsertRowid, customer.id, item.article_id, item.article_name, item.quantity, item.unit_price, item.total);
+      });
       return db.prepare("SELECT balance FROM customers WHERE id = ?").get(customer.id).balance;
     })();
     res.json({ success: true, new_balance: newBalance, customer_name: customer.name });
@@ -694,11 +870,102 @@ app.get("/api/transactions", (req, res) => {
   let q = "SELECT * FROM transactions";
   const params = [];
   if (customer_id) { q += " WHERE customer_id = ?"; params.push(customer_id); }
-  // Fix #8 (Review 3): datetime('now') hat nur Sekundenauflösung. id DESC als
+  // datetime('now') hat nur Sekundenauflösung. id DESC als
   // Tiebreaker sorgt dafür, dass Transaktionen innerhalb derselben Sekunde
   // trotzdem in der korrekten Reihenfolge angezeigt werden.
   q += " ORDER BY created_at DESC, id DESC LIMIT 100";
   res.json(db.prepare(q).all(...params));
+});
+
+
+function parseItemsFromTransactionNote(note) {
+  const raw = String(note || "").replace(/^Einkauf:\s*/i, "");
+  if (!raw.trim()) return [];
+  return raw.split(",").map((part) => {
+    const clean = part.trim();
+    const m = clean.match(/^(.*?)\s+x(\d+)$/i);
+    return {
+      article_name: (m ? m[1] : clean).trim() || "Artikel",
+      quantity: m ? Math.max(1, Number(m[2])) : 1,
+      unit_price: 0,
+      total: 0,
+      legacy: true,
+    };
+  }).filter((x) => x.article_name);
+}
+
+app.get("/api/statistics/sales", (req, res) => {
+  const days = Number(req.query.days || 0);
+  const params = [];
+  let where = "WHERE t.type = 'purchase'";
+  if (Number.isFinite(days) && days > 0) {
+    where += " AND datetime(t.created_at) >= datetime('now', ?)";
+    params.push(`-${Math.round(days)} days`);
+  }
+
+  const transactions = db.prepare(`
+    SELECT t.id, t.customer_id, c.name AS customer_name, t.amount, t.note, t.created_at
+    FROM transactions t
+    LEFT JOIN customers c ON c.id = t.customer_id
+    ${where}
+    ORDER BY t.created_at DESC, t.id DESC
+    LIMIT 500
+  `).all(...params);
+
+  const txIds = transactions.map((t) => t.id);
+  let itemRows = [];
+  if (txIds.length) {
+    const placeholders = txIds.map(() => "?").join(",");
+    itemRows = db.prepare(`
+      SELECT * FROM sale_items
+      WHERE transaction_id IN (${placeholders})
+      ORDER BY sold_at DESC, id ASC
+    `).all(...txIds);
+  }
+
+  const byTx = new Map();
+  itemRows.forEach((item) => {
+    if (!byTx.has(item.transaction_id)) byTx.set(item.transaction_id, []);
+    byTx.get(item.transaction_id).push(item);
+  });
+
+  const summaryMap = new Map();
+  let totalQuantity = 0;
+  transactions.forEach((tx) => {
+    const items = byTx.get(tx.id)?.length ? byTx.get(tx.id) : parseItemsFromTransactionNote(tx.note);
+    tx.items = items;
+    items.forEach((item) => {
+      const key = String(item.article_id || item.article_name || "Artikel").toLowerCase();
+      const prev = summaryMap.get(key) || {
+        article_id: item.article_id || null,
+        article_name: item.article_name || "Artikel",
+        quantity: 0,
+        total_amount: 0,
+        sales_count: 0,
+        first_sold_at: tx.created_at,
+        last_sold_at: tx.created_at,
+      };
+      const qty = Math.max(0, Number(item.quantity || 0));
+      prev.quantity += qty;
+      prev.total_amount = money(prev.total_amount + Number(item.total || 0));
+      prev.sales_count += 1;
+      if (String(tx.created_at) < String(prev.first_sold_at)) prev.first_sold_at = tx.created_at;
+      if (String(tx.created_at) > String(prev.last_sold_at)) prev.last_sold_at = tx.created_at;
+      summaryMap.set(key, prev);
+      totalQuantity += qty;
+    });
+  });
+
+  const summary = [...summaryMap.values()].sort((a, b) => b.quantity - a.quantity || String(a.article_name).localeCompare(String(b.article_name), "de-CH"));
+  res.json({
+    totals: {
+      sales_count: transactions.length,
+      article_quantity: totalQuantity,
+      revenue: money(transactions.reduce((sum, tx) => sum + Number(tx.amount || 0), 0)),
+    },
+    summary,
+    sales: transactions,
+  });
 });
 
 app.listen(PORT, () => console.log(`Kasse backend running on :${PORT}`));

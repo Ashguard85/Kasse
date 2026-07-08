@@ -4,6 +4,8 @@ import Kasse from "./pages/Kasse";
 import Admin from "./pages/Admin";
 import Karten from "./pages/Karten";
 import Einstellungen from "./pages/Einstellungen";
+import Drucker from "./pages/Drucker";
+import Statistik from "./pages/Statistik";
 import { CartProvider } from "./CartContext";
 import { NfcProvider } from "./NfcContext";
 import NfcStatus from "./NfcStatus";
@@ -26,6 +28,8 @@ export default function App() {
               <NavLink to="/" end className={({ isActive }) => isActive ? styles.active : ""}>🛒 Kasse</NavLink>
               <NavLink to="/karten" className={({ isActive }) => isActive ? styles.active : ""}>💳 Karten</NavLink>
               <NavLink to="/admin" className={({ isActive }) => isActive ? styles.active : ""}>📦 Artikel</NavLink>
+              <NavLink to="/drucker" className={({ isActive }) => isActive ? styles.active : ""}>🧾 Drucker</NavLink>
+              <NavLink to="/statistik" className={({ isActive }) => isActive ? styles.active : ""}>📊 Statistik</NavLink>
               <NavLink to="/einstellungen" className={({ isActive }) => isActive ? styles.active : ""}>⚙️ Einstellungen</NavLink>
               <NfcStatus />
             </nav>
@@ -34,6 +38,8 @@ export default function App() {
                 <Route path="/" element={<Kasse />} />
                 <Route path="/karten" element={<Karten />} />
                 <Route path="/admin" element={<Admin />} />
+                <Route path="/drucker" element={<Drucker />} />
+                <Route path="/statistik" element={<Statistik />} />
                 <Route path="/einstellungen" element={<Einstellungen />} />
               </Routes>
             </main>

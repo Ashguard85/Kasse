@@ -36,7 +36,7 @@ export default function Admin() {
   const [msg, setMsg] = useState({ text: "", type: "" });
   const [filter, setFilter] = useState("");
   const fileRef = useRef();
-  const msgTimerRef = useRef(null); // Fix #5 (Review 4): verhindert Race Condition bei schnell aufeinanderfolgenden Meldungen
+  const msgTimerRef = useRef(null); // verhindert Race Condition bei schnell aufeinanderfolgenden Meldungen
 
   const fetchArticles = async () => {
     try {

@@ -4,6 +4,14 @@ import { useCart } from "../CartContext";
 import { useNfc } from "../NfcContext";
 import { apiFetch, assetUrl, loadAssetUrl } from "../lib/api";
 import { isCameraSupported, openCameraStream, startQrScanner, waitForVideoRef } from "../lib/qrScanner";
+import {
+  buildReceiptText,
+  getLastReceiptText,
+  getPrinterSettings,
+  printReceiptText,
+  saveLastReceiptText,
+} from "../lib/escposPrinter";
+import { loadPrinterSettingsFromApi } from "../lib/printerSettingsSync";
 
 const API = "/api";
 const LETTERS = ["ALL", ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("")];
@@ -61,7 +69,7 @@ function ArticleTile({ article, onClick }) {
 export default function Kasse() {
   const { cart, addToCart, removeFromCart, clearCart } = useCart(); // Warenkorb lebt im globalen Context, überlebt Seitenwechsel
   const nfc = useNfc(); // geteilte, app-weite NFC-Box-Verbindung
-  const [allArticles, setAllArticles] = useState([]); // Fix #8: ungefiltert, für die Buchstabenleiste
+  const [allArticles, setAllArticles] = useState([]); // ungefiltert, für die Buchstabenleiste
   const [articles, setArticles] = useState([]); // gefiltert für die Anzeige
   const [letter, setLetter] = useState("ALL");
   const [page, setPage] = useState(0);
@@ -73,15 +81,19 @@ export default function Kasse() {
   const [nfcStatus, setNfcStatus] = useState("");
   const [cardInfo, setCardInfo] = useState(null);
   const [errorMsg, setErrorMsg] = useState("");
+  const [lastReceipt, setLastReceipt] = useState(() => getLastReceiptText());
+  const [receiptStatus, setReceiptStatus] = useState("");
+  const [printingReceipt, setPrintingReceipt] = useState(false);
+  const [printerSettings, setPrinterSettingsState] = useState(() => getPrinterSettings());
   const videoRef = useRef(null);
   const qrScannerRef = useRef(null);
-  const nfcAbortRef = useRef(null); // Fix #7: echtes Abbrechen via AbortController
+  const nfcAbortRef = useRef(null); // echtes Abbrechen via AbortController
   const bleDisconnectRef = useRef(null); // Trennt die ESP32-Bluetooth-Bridge
-  const paymentDoneRef = useRef(false); // Fix #6: verhindert Mehrfach-Abbuchung durch mehrfaches NFC-Lesen
+  const paymentDoneRef = useRef(false); // verhindert Mehrfach-Abbuchung durch mehrfaches NFC-Lesen
   const gridRef = useRef(null); // für Swipe-Erkennung
   const touchStartRef = useRef({ x: 0, y: 0 });
 
-  // Fix #8: alle Artikel einmalig laden für die Buchstabenleiste (unabhängig vom aktuellen Filter)
+  // alle Artikel einmalig laden für die Buchstabenleiste (unabhängig vom aktuellen Filter)
   const fetchAllArticles = useCallback(async () => {
     try {
       const res = await apiFetch(`/api/articles`);
@@ -140,12 +152,27 @@ export default function Kasse() {
     }
   }, [enabledModes, payMode]);
 
+  useEffect(() => {
+    const refresh = () => setPrinterSettingsState(getPrinterSettings());
+    window.addEventListener("kasse:printer-settings-updated", refresh);
+    return () => window.removeEventListener("kasse:printer-settings-updated", refresh);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const synced = await loadPrinterSettingsFromApi();
+      if (!cancelled && synced.printer) setPrinterSettingsState(synced.printer);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   // Stop scanners on unmount
   useEffect(() => () => { stopQr(); stopNfc(); stopBleNfc(); }, []);
 
   const paginated = articles.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const totalPages = Math.ceil(articles.length / PAGE_SIZE);
-  // Fix #1 (Review 4): Frontend rundet zusätzlich, damit gar nicht erst ein
+  // Frontend rundet zusätzlich, damit gar nicht erst ein
   // verrauschter Float-Wert (z.B. 0.30000000000000004) ans Backend geschickt wird.
   const total = Math.round(cart.reduce((s, i) => s + i.price * i.qty, 0) * 100) / 100;
 
@@ -183,7 +210,7 @@ export default function Kasse() {
   // "user gesture" und der Kamera-Prompt erscheint nicht.
   const startPayment = () => {
     if (cart.length === 0) return;
-    paymentDoneRef.current = false; // Fix #6: Guard zurücksetzen für neue Zahlung
+    paymentDoneRef.current = false; // Guard zurücksetzen für neue Zahlung
     if (payMode === "qr") {
       startQr(); // öffnet Kamera direkt im Klick-Handler und setzt danach payment
     } else if (payMode === "bleNfc") {
@@ -204,7 +231,7 @@ export default function Kasse() {
     }
   };
 
-  // NFC — Fix #6 + #7: AbortController zum echten Stoppen, Guard gegen Mehrfach-Trigger
+  // NFC — AbortController zum echten Stoppen, Guard gegen Mehrfach-Trigger
   const startNfc = async () => {
     setNfcStatus("Bitte NFC-Karte ans Tablet halten …");
     if (!("NDEFReader" in window)) {
@@ -340,7 +367,7 @@ export default function Kasse() {
     processPayment(manualName.trim());
   };
 
-  // Fix #10: try/catch für Netzwerkfehler bei der Zahlung
+  // try/catch für Netzwerkfehler bei der Zahlung
   const processPayment = async (identifier) => {
     setNfcStatus("Verarbeite Zahlung …");
     stopQr();
@@ -351,10 +378,31 @@ export default function Kasse() {
       const res = await apiFetch(`/api/checkout`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ card_uid: identifier, total, items }),
+        body: JSON.stringify({
+          card_uid: identifier,
+          total,
+          items,
+          line_items: cart.map((item) => ({
+            article_id: item.id,
+            name: item.name,
+            qty: item.qty,
+            unit_price: item.price,
+          })),
+        }),
       });
       const data = await res.json();
       if (res.ok) {
+        const receipt = buildReceiptText({
+          items: cart.map((item) => ({ name: item.name, qty: item.qty, price: item.price })),
+          total,
+          paymentMode: payMode,
+          customerName: data.customer_name,
+          newBalance: data.new_balance,
+          paidAt: new Date(),
+        });
+        saveLastReceiptText(receipt);
+        setLastReceipt(receipt);
+        setReceiptStatus("");
         setCardInfo(data);
         setPhase("success");
         clearCart(); // erst hier wird der Warenkorb geleert — exakt wie gewünscht
@@ -372,6 +420,33 @@ export default function Kasse() {
     }
   };
 
+  const printCurrentReceipt = async ({ finishAfterPrint = false } = {}) => {
+    const text = lastReceipt || getLastReceiptText();
+    if (!text) {
+      setReceiptStatus("Kein Bon vorhanden.");
+      return;
+    }
+    const settings = getPrinterSettings();
+    setPrinterSettingsState(settings);
+    if (!settings.enabled || !settings.address) {
+      setReceiptStatus("Bondrucker ist nicht eingerichtet. Bitte im Reiter Drucker auswählen und aktivieren.");
+      return;
+    }
+    setPrintingReceipt(true);
+    setReceiptStatus("Sende Bon an Drucker …");
+    try {
+      await printReceiptText(text, settings);
+      setReceiptStatus("Bon wurde an den Drucker gesendet ✓");
+      if (finishAfterPrint) {
+        setTimeout(resetShop, 450);
+      }
+    } catch (e) {
+      setReceiptStatus(e?.message || "Bon konnte nicht gedruckt werden.");
+    } finally {
+      setPrintingReceipt(false);
+    }
+  };
+
   const resetShop = () => {
     stopQr();
     stopNfc();
@@ -381,6 +456,7 @@ export default function Kasse() {
     setCardInfo(null);
     setErrorMsg("");
     setNfcStatus("");
+    setReceiptStatus("");
     setManualName("");
   };
 
@@ -405,7 +481,7 @@ export default function Kasse() {
       <div className={styles.left}>
         <div className={styles.letterBar}>
           {LETTERS.map((l) => {
-            // Fix #8: Buchstaben werden aus ALLEN Artikeln berechnet, nicht aus dem aktuell gefilterten Set
+            // Buchstaben werden aus ALLEN Artikeln berechnet, nicht aus dem aktuell gefilterten Set
             const used = allArticles.some(a => a.name[0].toUpperCase() === l);
             if (l !== "ALL" && !used) return null;
             return (
@@ -500,6 +576,11 @@ export default function Kasse() {
         {cart.length > 0 && (
           <button className={styles.clearBtn} onClick={clearCart}>Warenkorb leeren</button>
         )}
+        {lastReceipt && (
+          <button className={styles.reprintBtn} onClick={printCurrentReceipt} disabled={printingReceipt}>
+            🧾 Letzten Bon drucken
+          </button>
+        )}
       </div>
 
       {/* Overlay */}
@@ -557,7 +638,18 @@ export default function Kasse() {
                 <div className={styles.successIcon}>✅</div>
                 <h2>Bezahlt!</h2>
                 <p>{cardInfo?.customer_name && <strong>{cardInfo.customer_name}</strong>} — Neues Guthaben: <strong>{cardInfo ? priceStr(cardInfo.new_balance) : ""}</strong></p>
-                <button className={styles.successBtn} onClick={resetShop}>Weiter einkaufen</button>
+                {receiptStatus && <p className={styles.receiptStatus}>{receiptStatus}</p>}
+                <button
+                  className={styles.printBtn}
+                  onClick={() => printCurrentReceipt({ finishAfterPrint: true })}
+                  disabled={printingReceipt}
+                >
+                  {printingReceipt ? "Drucke …" : printerSettings.enabled ? "🧾 Bon drucken" : "🧾 Bon drucken"}
+                </button>
+                {!printerSettings.enabled && (
+                  <p className={styles.receiptHint}>Bondrucker ist noch nicht aktiviert. Das geht im Reiter Drucker.</p>
+                )}
+                <button className={styles.successBtn} onClick={resetShop}>Kein Bon drucken</button>
               </>
             )}
             {phase === "error" && (

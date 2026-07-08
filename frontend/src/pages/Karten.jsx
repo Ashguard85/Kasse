@@ -36,7 +36,7 @@ export default function Karten() {
   const videoRef = useRef(null);
   const scannerRef = useRef(null);
   const bleDisconnectRef = useRef(null); // Trennt die ESP32-Bluetooth-NFC-Box
-  const msgTimerRef = useRef(null); // Fix #5 (Review 4): verhindert Race Condition bei schnell aufeinanderfolgenden Meldungen
+  const msgTimerRef = useRef(null); // verhindert Race Condition bei schnell aufeinanderfolgenden Meldungen
 
   const fetchCustomers = async () => {
     try {
@@ -312,6 +312,44 @@ export default function Karten() {
     }
   };
 
+
+  const clearCustomerHistory = async (customer) => {
+    if (!customer) return;
+    if (!confirm(`Verlauf von "${customer.name}" wirklich löschen? Guthaben und Zahlungsmittel bleiben erhalten.`)) return;
+    try {
+      const res = await apiFetch(`/api/customers/${customer.id}/transactions`, { method: "DELETE" });
+      if (res.ok) {
+        setTransactions([]);
+        showMsg("Verlauf gelöscht ✓");
+        fetchCustomers();
+      } else {
+        const d = await res.json().catch(() => ({}));
+        showMsg(d.error || "Verlauf konnte nicht gelöscht werden", "err");
+      }
+    } catch (e) {
+      showMsg("Server nicht erreichbar", "err");
+    }
+  };
+
+  const deleteCustomer = async (customer) => {
+    if (!customer) return;
+    if (!confirm(`Kunde "${customer.name}" endgültig löschen? Guthaben, Karten/QR und Verlauf werden gelöscht.`)) return;
+    try {
+      const res = await apiFetch(`/api/customers/${customer.id}`, { method: "DELETE" });
+      if (res.ok) {
+        setSelected(null);
+        setTransactions([]);
+        showMsg("Kunde gelöscht ✓");
+        fetchCustomers();
+      } else {
+        const d = await res.json().catch(() => ({}));
+        showMsg(d.error || "Kunde konnte nicht gelöscht werden", "err");
+      }
+    } catch (e) {
+      showMsg("Server nicht erreichbar", "err");
+    }
+  };
+
   // Fix Review #2: QR-Codes werden jetzt lokal mit der QrCode-Komponente gerendert,
   // kein externer Dienst (api.qrserver.com) mehr nötig — funktioniert auch ohne Internet.
 
@@ -462,9 +500,17 @@ export default function Karten() {
                           <span className={styles.detailLabel}>Guthaben</span>
                           <strong className={`${styles.detailBalance} ${selected.balance < 1 ? styles.balanceLowText : ""}`}>{priceStr(selected.balance)}</strong>
                         </div>
-                        <button type="button" className={styles.secondaryBtn} onClick={() => setTopupId(String(selected.id))}>
-                          Für Aufladung wählen
-                        </button>
+                        <div className={styles.detailActions}>
+                          <button type="button" className={styles.secondaryBtn} onClick={() => setTopupId(String(selected.id))}>
+                            Für Aufladung wählen
+                          </button>
+                          <button type="button" className={styles.dangerBtn} onClick={() => clearCustomerHistory(selected)}>
+                            Verlauf löschen
+                          </button>
+                          <button type="button" className={styles.dangerBtn} onClick={() => deleteCustomer(selected)}>
+                            Kunde löschen
+                          </button>
+                        </div>
                       </div>
 
                       <div className={styles.detailBlock}>
@@ -508,7 +554,7 @@ export default function Karten() {
                           {transactions.map(t => (
                             <div key={t.id} className={styles.txRow}>
                               <span>{t.type === "purchase" ? "🛒" : "💰"}</span>
-                              <span className={styles.txNote}>{t.note}</span>
+                              <span className={styles.txNote}>{t.note}<small>{new Date(t.created_at).toLocaleString("de-CH")}</small></span>
                               <strong className={`${styles.txAmount} ${t.type === "purchase" ? styles.txMinus : styles.txPlus}`}>
                                 {t.type === "purchase" ? "−" : "+"}{priceStr(t.amount)}
                               </strong>
