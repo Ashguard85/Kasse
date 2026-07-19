@@ -1,9 +1,11 @@
 import { Capacitor, registerPlugin } from "@capacitor/core";
+import { getActiveProfileId } from "./profile";
 
 const STORAGE_KEY = "kasseEscposPrinterSettings";
 const RECEIPT_LAYOUT_KEY = "kasseReceiptLayoutSettings";
 const LAST_RECEIPT_KEY = "kasseLastReceiptText";
 const DEFAULT_LINE_WIDTH = 32;
+const scopedKey = (base) => `${base}:${getActiveProfileId()}`;
 
 const CODE_PAGES = ["auto", "iso885915", "cp858", "cp850", "windows1252", "pc936", "gb18030", "replace"];
 const TEXT_STYLES = ["normal", "small", "bold", "large", "largeBold"];
@@ -45,7 +47,7 @@ export function isNativePrinterAvailable() {
 
 export function getPrinterSettings() {
   try {
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+    const parsed = JSON.parse(localStorage.getItem(scopedKey(STORAGE_KEY)) || "{}");
     return {
       enabled: Boolean(parsed.enabled),
       address: parsed.address || "",
@@ -62,14 +64,14 @@ export function setPrinterSettings(settings) {
     address: settings?.address || "",
     name: settings?.name || "",
   };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  localStorage.setItem(scopedKey(STORAGE_KEY), JSON.stringify(next));
   window.dispatchEvent(new CustomEvent("kasse:printer-settings-updated", { detail: next }));
   return next;
 }
 
 export function getReceiptLayoutSettings() {
   try {
-    const parsed = JSON.parse(localStorage.getItem(RECEIPT_LAYOUT_KEY) || "{}");
+    const parsed = JSON.parse(localStorage.getItem(scopedKey(RECEIPT_LAYOUT_KEY)) || "{}");
     return sanitizeReceiptLayout(parsed);
   } catch {
     return { ...DEFAULT_RECEIPT_LAYOUT };
@@ -78,13 +80,13 @@ export function getReceiptLayoutSettings() {
 
 export function setReceiptLayoutSettings(layout) {
   const next = sanitizeReceiptLayout(layout);
-  localStorage.setItem(RECEIPT_LAYOUT_KEY, JSON.stringify(next));
+  localStorage.setItem(scopedKey(RECEIPT_LAYOUT_KEY), JSON.stringify(next));
   window.dispatchEvent(new CustomEvent("kasse:receipt-layout-updated", { detail: next }));
   return next;
 }
 
 export function resetReceiptLayoutSettings() {
-  localStorage.removeItem(RECEIPT_LAYOUT_KEY);
+  localStorage.removeItem(scopedKey(RECEIPT_LAYOUT_KEY));
   const next = { ...DEFAULT_RECEIPT_LAYOUT };
   window.dispatchEvent(new CustomEvent("kasse:receipt-layout-updated", { detail: next }));
   return next;
@@ -155,7 +157,7 @@ function receiptLogoBase64(dataUrl = "") {
 
 export function getLastReceiptText() {
   try {
-    return localStorage.getItem(LAST_RECEIPT_KEY) || "";
+    return localStorage.getItem(scopedKey(LAST_RECEIPT_KEY)) || "";
   } catch {
     return "";
   }
@@ -163,7 +165,7 @@ export function getLastReceiptText() {
 
 export function saveLastReceiptText(text) {
   try {
-    localStorage.setItem(LAST_RECEIPT_KEY, text || "");
+    localStorage.setItem(scopedKey(LAST_RECEIPT_KEY), text || "");
   } catch {}
 }
 

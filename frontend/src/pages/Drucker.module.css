@@ -2,7 +2,7 @@
   height: 100%;
   overflow-y: auto;
   padding: clamp(10px, 2vw, 20px);
-  background: var(--gray-100);
+  background: var(--app-background, var(--gray-100));
 }
 
 .card {

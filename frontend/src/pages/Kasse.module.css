@@ -4,6 +4,7 @@
   height: 100%;
   gap: 0;
   position: relative;
+  background: var(--register-background, var(--gray-100));
 }
 
 /* ── Left: article browser ── */
@@ -16,6 +17,26 @@
   gap: 10px;
   min-width: 0;
 }
+
+
+.profileBanner {
+  min-height: 68px;
+  flex-shrink: 0;
+  border-radius: var(--radius);
+  background: var(--profile-banner-background, var(--green));
+  color: var(--profile-banner-text, white);
+  background-size: cover;
+  background-position: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 10px 16px;
+  box-shadow: var(--shadow);
+}
+.profileBanner strong { font-size: clamp(20px, 3vw, 30px); font-weight: 900; text-shadow: 0 2px 5px rgba(0,0,0,.28); }
+.profileBanner span { font-size: clamp(12px, 1.7vw, 16px); font-weight: 800; text-shadow: 0 2px 5px rgba(0,0,0,.28); }
 
 /* Letter filter */
 .letterBar {

@@ -10,11 +10,11 @@ import { CartProvider } from "./CartContext";
 import { NfcProvider } from "./NfcContext";
 import NfcStatus from "./NfcStatus";
 import styles from "./App.module.css";
+import { ProfileProvider, useProfile } from "./ProfileContext";
 
-export default function App() {
+function AppShell() {
+  const { activeProfile } = useProfile();
   return (
-    <NfcProvider>
-      <CartProvider>
         <HashRouter>
           <div className={styles.app}>
             {/* Portrait mode hint */}
@@ -24,7 +24,7 @@ export default function App() {
             </div>
 
             <nav className={styles.nav}>
-              <div className={styles.logo}>🛒 Kasse</div>
+              <div className={styles.logo}>🛒 {activeProfile?.name || "Kasse"}</div>
               <NavLink to="/" end className={({ isActive }) => isActive ? styles.active : ""}>🛒 Kasse</NavLink>
               <NavLink to="/karten" className={({ isActive }) => isActive ? styles.active : ""}>💳 Karten</NavLink>
               <NavLink to="/admin" className={({ isActive }) => isActive ? styles.active : ""}>📦 Artikel</NavLink>
@@ -45,6 +45,16 @@ export default function App() {
             </main>
           </div>
         </HashRouter>
+  );
+}
+
+export default function App() {
+  return (
+    <NfcProvider>
+      <CartProvider>
+        <ProfileProvider>
+          <AppShell />
+        </ProfileProvider>
       </CartProvider>
     </NfcProvider>
   );

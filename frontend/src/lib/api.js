@@ -1,5 +1,6 @@
 import { Capacitor } from "@capacitor/core";
 import { localApiFetch, exportLocalData as exportLocalDbData, importLocalData as importLocalDbData, resetLocalData as resetLocalDbData } from "./localDb";
+import { getActiveProfileId } from "./profile";
 
 const API_BASE_KEY = "kasseApiBase";
 const CF_CLIENT_ID_KEY = "kasseCloudflareAccessClientId";
@@ -96,6 +97,7 @@ export function api(path) {
 export function apiHeaders(extraHeaders = {}) {
   const headers = new Headers(extraHeaders || {});
   const { clientId, clientSecret } = getCloudflareAccessConfig();
+  headers.set("X-Kasse-Profile-Id", String(getActiveProfileId()));
 
   if (clientId && clientSecret) {
     headers.set("CF-Access-Client-Id", clientId);

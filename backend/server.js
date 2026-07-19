@@ -31,6 +31,7 @@ app.use(cors({
     "CF-Access-Client-Id",
     "CF-Access-Client-Secret",
     "Cf-Access-Jwt-Assertion",
+    "X-Kasse-Profile-Id",
   ],
 }));
 app.use(express.json({ limit: "8mb" }));
@@ -41,8 +42,17 @@ const db = new Database(DB_PATH);
 db.pragma("foreign_keys = ON"); // ohne das ignoriert SQLite ON DELETE CASCADE
 
 db.exec(`
+  CREATE TABLE IF NOT EXISTS profiles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
+    theme_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
   CREATE TABLE IF NOT EXISTS articles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id INTEGER NOT NULL DEFAULT 1 REFERENCES profiles(id),
     name TEXT NOT NULL,
     price REAL NOT NULL,
     image TEXT DEFAULT NULL,
@@ -51,7 +61,7 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now'))
   );
 
-  -- Kunde: trägt das Guthaben
+  -- Kunden sind profilübergreifend. Aktivierung und Guthaben stehen in customer_profiles.
   CREATE TABLE IF NOT EXISTS customers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -59,7 +69,15 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now'))
   );
 
-  -- Zahlungsmittel: gehört zu genau einem Kunden, kann NFC oder QR sein
+  CREATE TABLE IF NOT EXISTS customer_profiles (
+    customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+    profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    active INTEGER NOT NULL DEFAULT 0,
+    balance REAL NOT NULL DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY(customer_id, profile_id)
+  );
+
   CREATE TABLE IF NOT EXISTS payment_tokens (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
@@ -71,6 +89,7 @@ db.exec(`
 
   CREATE TABLE IF NOT EXISTS transactions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id INTEGER NOT NULL DEFAULT 1 REFERENCES profiles(id),
     customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
     amount REAL NOT NULL,
     type TEXT NOT NULL,
@@ -78,9 +97,9 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now'))
   );
 
-  -- Einzelne verkaufte Artikel je Einkauf: Basis für Statistik.
   CREATE TABLE IF NOT EXISTS sale_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id INTEGER NOT NULL DEFAULT 1 REFERENCES profiles(id),
     transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
     customer_id INTEGER REFERENCES customers(id) ON DELETE SET NULL,
     article_id INTEGER,
@@ -91,7 +110,15 @@ db.exec(`
     sold_at TEXT DEFAULT (datetime('now'))
   );
 
-  -- App-Einstellungen als einfache Key-Value-Ablage (gemeinsam für alle Geräte)
+  -- Profilabhängige Einstellungen (Zahlung, Drucker, Bonlayout).
+  CREATE TABLE IF NOT EXISTS profile_settings (
+    profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    PRIMARY KEY(profile_id, key)
+  );
+
+  -- Legacy-Tabelle bleibt für Abwärtskompatibilität bestehen.
   CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -106,6 +133,72 @@ try {
   `);
 } catch (e) { console.log("Index-Migration skip:", e.message); }
 
+
+// ── Mehrprofil-Grundlage / kompatible Schema-Erweiterung ─────────────────────
+const DEFAULT_THEME = {
+  primaryColor: "#1a7a3c",
+  primaryDark: "#145c2d",
+  accentColor: "#f5c400",
+  pageBackground: "#f3f4f6",
+  registerBackground: "#f3f4f6",
+  bannerBackground: "#1a7a3c",
+  bannerTextColor: "#ffffff",
+  bannerText: "Willkommen!",
+  bannerImageDataUrl: "",
+};
+
+function ensureColumn(table, column, definition) {
+  try {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+    if (!cols.some((c) => c.name === column)) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+      console.log(`Migration: ${table}.${column} ergänzt`);
+    }
+  } catch (e) { console.log(`Migration ${table}.${column} skip:`, e.message); }
+}
+
+const profileCount = db.prepare("SELECT COUNT(*) AS c FROM profiles").get();
+if (profileCount.c === 0) {
+  db.prepare("INSERT INTO profiles (id, name, active, theme_json) VALUES (1, ?, 1, ?)")
+    .run("Einkaufsladen", JSON.stringify(DEFAULT_THEME));
+}
+ensureColumn("articles", "profile_id", "INTEGER NOT NULL DEFAULT 1");
+ensureColumn("transactions", "profile_id", "INTEGER NOT NULL DEFAULT 1");
+ensureColumn("sale_items", "profile_id", "INTEGER NOT NULL DEFAULT 1");
+
+try {
+  db.exec(`
+    UPDATE articles SET profile_id = 1 WHERE profile_id IS NULL;
+    UPDATE transactions SET profile_id = 1 WHERE profile_id IS NULL;
+    UPDATE sale_items SET profile_id = 1 WHERE profile_id IS NULL;
+    INSERT OR IGNORE INTO customer_profiles (customer_id, profile_id, active, balance)
+      SELECT id, 1, 1, COALESCE(balance, 0) FROM customers;
+    CREATE INDEX IF NOT EXISTS idx_articles_profile_name ON articles(profile_id, name);
+    CREATE INDEX IF NOT EXISTS idx_transactions_profile_created ON transactions(profile_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_sale_items_profile_sold ON sale_items(profile_id, sold_at);
+    CREATE INDEX IF NOT EXISTS idx_customer_profiles_profile ON customer_profiles(profile_id, active);
+  `);
+} catch (e) { console.log("Mehrprofil-Migration skip:", e.message); }
+
+function sanitizeProfileId(value) {
+  const id = Number(value);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+function getDefaultProfile() {
+  return db.prepare("SELECT * FROM profiles WHERE active = 1 ORDER BY id LIMIT 1").get()
+    || db.prepare("SELECT * FROM profiles ORDER BY id LIMIT 1").get();
+}
+
+function getProfileId(req) {
+  const requested = sanitizeProfileId(req.get("X-Kasse-Profile-Id") || req.query.profile_id || req.body?.profile_id);
+  if (requested) {
+    const found = db.prepare("SELECT id FROM profiles WHERE id = ? AND active = 1").get(requested);
+    if (found) return found.id;
+  }
+  return getDefaultProfile()?.id || 1;
+}
+
 // ── Migration von altem Schema (nfc_cards) falls vorhanden ───────────────────
 try {
   const oldTableExists = db.prepare(
@@ -117,6 +210,7 @@ try {
     const insToken = db.prepare("INSERT INTO payment_tokens (customer_id, type, value, active) VALUES (?, ?, ?, 1)");
     old.forEach(row => {
       const cust = insCustomer.run(row.label, row.balance);
+      db.prepare("INSERT OR IGNORE INTO customer_profiles (customer_id, profile_id, active, balance) VALUES (?, 1, 1, ?)").run(cust.lastInsertRowid, row.balance || 0);
       if (row.uid) insToken.run(cust.lastInsertRowid, "nfc", row.uid);
       if (row.qr_code) insToken.run(cust.lastInsertRowid, "qr", row.qr_code);
     });
@@ -146,9 +240,9 @@ try {
 } catch (e) { console.log("Hidden-Migration skip:", e.message); }
 
 // Seed demo articles
-const count = db.prepare("SELECT COUNT(*) as c FROM articles").get();
+const count = db.prepare("SELECT COUNT(*) as c FROM articles WHERE profile_id = 1").get();
 if (count.c === 0) {
-  const insert = db.prepare("INSERT INTO articles (name, price, image, emoji) VALUES (?, ?, ?, ?)");
+  const insert = db.prepare("INSERT INTO articles (profile_id, name, price, image, emoji) VALUES (1, ?, ?, ?, ?)");
   const demos = [
     ["Apfel", 0.50, "🍎"], ["Banane", 0.30, "🍌"], ["Erdbeeren", 1.80, "🍓"], ["Trauben", 2.20, "🍇"],
     ["Orange", 0.70, "🍊"], ["Zitrone", 0.40, "🍋"], ["Birne", 0.60, "🍐"], ["Mango", 1.50, "🥭"],
@@ -345,432 +439,341 @@ async function saveProcessedImage(file) {
   return `/uploads/${filename}`;
 }
 
-// ── Settings: Zahlungsmethoden (gemeinsam für alle Geräte) ───────────────────
+// ── Profile und profilabhängige Einstellungen ────────────────────────────────
 const VALID_PAY_MODES = ["nfc", "qr", "bleNfc", "manual"];
 const PAYMENT_SETTINGS_KEY = "payment_methods";
+const PRINTER_SETTINGS_KEY = "printer_settings";
+const RECEIPT_LAYOUT_SETTINGS_KEY = "receipt_layout_settings";
 
-// Standardkonfiguration, falls noch nichts gespeichert wurde: alle aktiv, NFC Standard
 const DEFAULT_PAYMENT_SETTINGS = {
   enabled: { nfc: true, qr: true, bleNfc: true, manual: true },
   default: "nfc",
 };
-
-function getPaymentSettings() {
-  const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(PAYMENT_SETTINGS_KEY);
-  if (!row) return DEFAULT_PAYMENT_SETTINGS;
-  try {
-    const parsed = JSON.parse(row.value);
-    // Defensive: fehlende Felder mit Defaults auffüllen
-    const enabled = {};
-    for (const m of VALID_PAY_MODES) {
-      enabled[m] = typeof parsed?.enabled?.[m] === "boolean" ? parsed.enabled[m] : true;
-    }
-    let def = VALID_PAY_MODES.includes(parsed?.default) ? parsed.default : "nfc";
-    // Standard muss aktiviert sein — sonst ersten aktiven nehmen
-    if (!enabled[def]) {
-      const firstEnabled = VALID_PAY_MODES.find((m) => enabled[m]);
-      def = firstEnabled || "manual";
-    }
-    return { enabled, default: def };
-  } catch {
-    return DEFAULT_PAYMENT_SETTINGS;
-  }
-}
-
-app.get("/api/settings/payment", (req, res) => {
-  res.json(getPaymentSettings());
-});
-
-app.put("/api/settings/payment", (req, res) => {
-  const { enabled, default: def } = req.body || {};
-
-  // Validierung
-  if (!enabled || typeof enabled !== "object") {
-    return res.status(400).json({ error: "enabled-Objekt fehlt" });
-  }
-  const cleanEnabled = {};
-  for (const m of VALID_PAY_MODES) {
-    cleanEnabled[m] = enabled[m] === true;
-  }
-  // Mindestens eine Methode muss aktiv sein, sonst kann man nicht bezahlen
-  if (!Object.values(cleanEnabled).some((v) => v)) {
-    return res.status(400).json({ error: "Mindestens eine Zahlungsmethode muss aktiv sein." });
-  }
-  if (!VALID_PAY_MODES.includes(def)) {
-    return res.status(400).json({ error: "Ungültige Standard-Methode." });
-  }
-  if (!cleanEnabled[def]) {
-    return res.status(400).json({ error: "Die Standard-Methode muss aktiviert sein." });
-  }
-
-  const value = JSON.stringify({ enabled: cleanEnabled, default: def });
-  db.prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?")
-    .run(PAYMENT_SETTINGS_KEY, value, value);
-  res.json({ enabled: cleanEnabled, default: def });
-});
-
-
-// ── Settings: Bondrucker / Bonlayout (gemeinsam für Web + APK im Servermodus) ──
-const PRINTER_SETTINGS_KEY = "printer_settings";
-const RECEIPT_LAYOUT_SETTINGS_KEY = "receipt_layout_settings";
-
 const DEFAULT_PRINTER_SETTINGS = { enabled: false, address: "", name: "" };
-
 const DEFAULT_RECEIPT_LAYOUT_SETTINGS = {
-  shopName: "Noemi's Lädeli",
-  subtitle: "Kassenzettel",
-  footerText: "Danke fürs Einkaufen!",
-  lineWidth: 32,
-  previewFontSize: "large",
-  itemSpacing: "compact",
-  printMode: "image",
-  imagePaddingPx: 0,
-  textStyle: "bold",
-  codePage: "auto",
-  printLogo: false,
-  logoDataUrl: "",
-  logoWidthPx: 320,
-  logoMaxHeightPx: 320,
-  showDate: true,
-  showPayment: true,
-  showCustomer: true,
-  showBalance: true,
-  showItemQuantity: true,
-  showUnitPrice: true,
+  shopName: "Noemi's Lädeli", subtitle: "Kassenzettel", footerText: "Danke fürs Einkaufen!",
+  lineWidth: 32, previewFontSize: "large", itemSpacing: "compact", printMode: "image",
+  imagePaddingPx: 0, textStyle: "bold", codePage: "auto", printLogo: false, logoDataUrl: "",
+  logoWidthPx: 320, logoMaxHeightPx: 320, showDate: true, showPayment: true,
+  showCustomer: true, showBalance: true, showItemQuantity: true, showUnitPrice: true,
 };
 
-function getJsonSetting(key, fallback) {
-  const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(key);
-  if (!row) return fallback;
-  try {
-    return { ...fallback, ...JSON.parse(row.value) };
-  } catch {
-    return fallback;
-  }
+function color(value, fallback) {
+  const v = String(value || "").trim();
+  return /^#[0-9a-f]{6}$/i.test(v) ? v : fallback;
 }
-
-function saveJsonSetting(key, value) {
-  const json = JSON.stringify(value);
-  db.prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?")
-    .run(key, json, json);
-  return value;
-}
-
-function sanitizePrinterSettings(input = {}) {
+function sanitizeTheme(input = {}) {
+  const merged = { ...DEFAULT_THEME, ...(input || {}) };
   return {
-    enabled: input.enabled === true,
-    address: String(input.address || "").slice(0, 120),
-    name: String(input.name || "").slice(0, 120),
+    primaryColor: color(merged.primaryColor, DEFAULT_THEME.primaryColor),
+    primaryDark: color(merged.primaryDark, DEFAULT_THEME.primaryDark),
+    accentColor: color(merged.accentColor, DEFAULT_THEME.accentColor),
+    pageBackground: color(merged.pageBackground, DEFAULT_THEME.pageBackground),
+    registerBackground: color(merged.registerBackground, DEFAULT_THEME.registerBackground),
+    bannerBackground: color(merged.bannerBackground, DEFAULT_THEME.bannerBackground),
+    bannerTextColor: color(merged.bannerTextColor, DEFAULT_THEME.bannerTextColor),
+    bannerText: String(merged.bannerText || "").slice(0, 120),
+    bannerImageDataUrl: String(merged.bannerImageDataUrl || "").startsWith("data:image/") ? String(merged.bannerImageDataUrl) : "",
   };
 }
+function profileToJson(row) {
+  if (!row) return null;
+  let theme = DEFAULT_THEME;
+  try { theme = sanitizeTheme(JSON.parse(row.theme_json || "{}")); } catch {}
+  return { id: row.id, name: row.name, active: Boolean(row.active), theme, created_at: row.created_at };
+}
 
+app.get("/api/profiles", (req, res) => {
+  const includeArchived = req.query.includeArchived === "1";
+  const rows = db.prepare(`SELECT * FROM profiles ${includeArchived ? "" : "WHERE active = 1"} ORDER BY active DESC, name COLLATE NOCASE`).all();
+  res.json(rows.map(profileToJson));
+});
+app.get("/api/profiles/current", (req, res) => {
+  const row = db.prepare("SELECT * FROM profiles WHERE id = ?").get(getProfileId(req));
+  res.json(profileToJson(row));
+});
+app.post("/api/profiles", (req, res) => {
+  const name = String(req.body?.name || "").trim();
+  if (!name) return res.status(400).json({ error: "Profilname ist erforderlich" });
+  const theme = sanitizeTheme(req.body?.theme || { ...DEFAULT_THEME, bannerText: name });
+  const result = db.prepare("INSERT INTO profiles (name, active, theme_json) VALUES (?, 1, ?)").run(name.slice(0, 80), JSON.stringify(theme));
+  saveJsonSetting(result.lastInsertRowid, RECEIPT_LAYOUT_SETTINGS_KEY, { ...DEFAULT_RECEIPT_LAYOUT_SETTINGS, shopName: name.slice(0, 40) });
+  res.status(201).json(profileToJson(db.prepare("SELECT * FROM profiles WHERE id = ?").get(result.lastInsertRowid)));
+});
+app.put("/api/profiles/:id", (req, res) => {
+  const id = sanitizeProfileId(req.params.id);
+  const row = id && db.prepare("SELECT * FROM profiles WHERE id = ?").get(id);
+  if (!row) return res.status(404).json({ error: "Profil nicht gefunden" });
+  const name = req.body?.name == null ? row.name : String(req.body.name).trim().slice(0, 80);
+  if (!name) return res.status(400).json({ error: "Profilname ist erforderlich" });
+  const active = req.body?.active == null ? row.active : (req.body.active ? 1 : 0);
+  if (!active) {
+    const other = db.prepare("SELECT COUNT(*) AS c FROM profiles WHERE active = 1 AND id <> ?").get(id);
+    if (!other.c) return res.status(400).json({ error: "Mindestens ein Profil muss aktiv bleiben" });
+  }
+  let currentTheme = DEFAULT_THEME;
+  try { currentTheme = JSON.parse(row.theme_json || "{}"); } catch {}
+  const theme = sanitizeTheme(req.body?.theme == null ? currentTheme : req.body.theme);
+  db.prepare("UPDATE profiles SET name = ?, active = ?, theme_json = ? WHERE id = ?").run(name, active, JSON.stringify(theme), id);
+  res.json(profileToJson(db.prepare("SELECT * FROM profiles WHERE id = ?").get(id)));
+});
+
+function getJsonSetting(profileId, key, fallback) {
+  const row = db.prepare("SELECT value FROM profile_settings WHERE profile_id = ? AND key = ?").get(profileId, key);
+  if (!row && profileId === 1) {
+    const legacy = db.prepare("SELECT value FROM settings WHERE key = ?").get(key);
+    if (legacy) {
+      try { return { ...fallback, ...JSON.parse(legacy.value) }; } catch {}
+    }
+  }
+  if (!row) return fallback;
+  try { return { ...fallback, ...JSON.parse(row.value) }; } catch { return fallback; }
+}
+function saveJsonSetting(profileId, key, value) {
+  const json = JSON.stringify(value);
+  db.prepare("INSERT INTO profile_settings (profile_id, key, value) VALUES (?, ?, ?) ON CONFLICT(profile_id, key) DO UPDATE SET value = excluded.value")
+    .run(profileId, key, json);
+  return value;
+}
+function getPaymentSettings(profileId) {
+  const parsed = getJsonSetting(profileId, PAYMENT_SETTINGS_KEY, DEFAULT_PAYMENT_SETTINGS);
+  const enabled = {};
+  for (const m of VALID_PAY_MODES) enabled[m] = typeof parsed?.enabled?.[m] === "boolean" ? parsed.enabled[m] : true;
+  let def = VALID_PAY_MODES.includes(parsed?.default) ? parsed.default : "nfc";
+  if (!enabled[def]) def = VALID_PAY_MODES.find((m) => enabled[m]) || "manual";
+  return { enabled, default: def };
+}
+function sanitizePrinterSettings(input = {}) {
+  return { enabled: input.enabled === true, address: String(input.address || "").slice(0, 120), name: String(input.name || "").slice(0, 120) };
+}
 function sanitizeReceiptLayoutSettings(input = {}) {
   const merged = { ...DEFAULT_RECEIPT_LAYOUT_SETTINGS, ...(input || {}) };
   const oneOf = (value, allowed, fallback) => allowed.includes(value) ? value : fallback;
-  const numOneOf = (value, allowed, fallback) => {
-    const n = Number(value);
-    return allowed.includes(n) ? n : fallback;
-  };
+  const numOneOf = (value, allowed, fallback) => { const n = Number(value); return allowed.includes(n) ? n : fallback; };
   return {
     ...merged,
-    shopName: String(merged.shopName || "").slice(0, 40),
-    subtitle: String(merged.subtitle || "").slice(0, 40),
+    shopName: String(merged.shopName || "").slice(0, 40), subtitle: String(merged.subtitle || "").slice(0, 40),
     footerText: String(merged.footerText || "").slice(0, 60),
-    lineWidth: numOneOf(merged.lineWidth, [28, 30, 32], DEFAULT_RECEIPT_LAYOUT_SETTINGS.lineWidth),
-    previewFontSize: oneOf(merged.previewFontSize, ["small", "normal", "large"], DEFAULT_RECEIPT_LAYOUT_SETTINGS.previewFontSize),
-    itemSpacing: oneOf(merged.itemSpacing, ["compact", "normal", "wide"], DEFAULT_RECEIPT_LAYOUT_SETTINGS.itemSpacing),
-    printMode: oneOf(merged.printMode, ["image", "text"], DEFAULT_RECEIPT_LAYOUT_SETTINGS.printMode),
-    imagePaddingPx: numOneOf(merged.imagePaddingPx, [0, 4, 8, 12, 16], DEFAULT_RECEIPT_LAYOUT_SETTINGS.imagePaddingPx),
-    textStyle: oneOf(merged.textStyle, ["normal", "small", "bold", "large", "largeBold"], DEFAULT_RECEIPT_LAYOUT_SETTINGS.textStyle),
-    codePage: oneOf(merged.codePage, ["auto", "iso885915", "cp858", "cp850", "windows1252", "pc936", "gb18030", "replace"], DEFAULT_RECEIPT_LAYOUT_SETTINGS.codePage),
+    lineWidth: numOneOf(merged.lineWidth, [28,30,32], DEFAULT_RECEIPT_LAYOUT_SETTINGS.lineWidth),
+    previewFontSize: oneOf(merged.previewFontSize, ["small","normal","large"], DEFAULT_RECEIPT_LAYOUT_SETTINGS.previewFontSize),
+    itemSpacing: oneOf(merged.itemSpacing, ["compact","normal","wide"], DEFAULT_RECEIPT_LAYOUT_SETTINGS.itemSpacing),
+    printMode: oneOf(merged.printMode, ["image","text"], DEFAULT_RECEIPT_LAYOUT_SETTINGS.printMode),
+    imagePaddingPx: numOneOf(merged.imagePaddingPx, [0,4,8,12,16], DEFAULT_RECEIPT_LAYOUT_SETTINGS.imagePaddingPx),
+    textStyle: oneOf(merged.textStyle, ["normal","small","bold","large","largeBold"], DEFAULT_RECEIPT_LAYOUT_SETTINGS.textStyle),
+    codePage: oneOf(merged.codePage, ["auto","iso885915","cp858","cp850","windows1252","pc936","gb18030","replace"], DEFAULT_RECEIPT_LAYOUT_SETTINGS.codePage),
     printLogo: merged.printLogo === true,
     logoDataUrl: String(merged.logoDataUrl || "").startsWith("data:image/") ? String(merged.logoDataUrl) : "",
-    logoWidthPx: numOneOf(merged.logoWidthPx, [240, 280, 320, 360, 384], DEFAULT_RECEIPT_LAYOUT_SETTINGS.logoWidthPx),
-    logoMaxHeightPx: numOneOf(merged.logoMaxHeightPx, [130, 180, 220, 260, 320, 384], DEFAULT_RECEIPT_LAYOUT_SETTINGS.logoMaxHeightPx),
-    showDate: merged.showDate !== false,
-    showPayment: merged.showPayment !== false,
-    showCustomer: merged.showCustomer !== false,
-    showBalance: merged.showBalance !== false,
-    showItemQuantity: merged.showItemQuantity !== false,
-    showUnitPrice: merged.showUnitPrice !== false,
+    logoWidthPx: numOneOf(merged.logoWidthPx, [240,280,320,360,384], DEFAULT_RECEIPT_LAYOUT_SETTINGS.logoWidthPx),
+    logoMaxHeightPx: numOneOf(merged.logoMaxHeightPx, [130,180,220,260,320,384], DEFAULT_RECEIPT_LAYOUT_SETTINGS.logoMaxHeightPx),
+    showDate: merged.showDate !== false, showPayment: merged.showPayment !== false,
+    showCustomer: merged.showCustomer !== false, showBalance: merged.showBalance !== false,
+    showItemQuantity: merged.showItemQuantity !== false, showUnitPrice: merged.showUnitPrice !== false,
   };
 }
 
-app.get("/api/settings/printer", (req, res) => {
-  res.json(sanitizePrinterSettings(getJsonSetting(PRINTER_SETTINGS_KEY, DEFAULT_PRINTER_SETTINGS)));
+app.get("/api/settings/payment", (req, res) => res.json(getPaymentSettings(getProfileId(req))));
+app.put("/api/settings/payment", (req, res) => {
+  const { enabled, default: def } = req.body || {};
+  if (!enabled || typeof enabled !== "object") return res.status(400).json({ error: "enabled-Objekt fehlt" });
+  const cleanEnabled = {}; for (const m of VALID_PAY_MODES) cleanEnabled[m] = enabled[m] === true;
+  if (!Object.values(cleanEnabled).some(Boolean)) return res.status(400).json({ error: "Mindestens eine Zahlungsmethode muss aktiv sein." });
+  if (!VALID_PAY_MODES.includes(def) || !cleanEnabled[def]) return res.status(400).json({ error: "Die Standard-Methode muss aktiviert sein." });
+  res.json(saveJsonSetting(getProfileId(req), PAYMENT_SETTINGS_KEY, { enabled: cleanEnabled, default: def }));
 });
+app.get("/api/settings/printer", (req, res) => res.json(sanitizePrinterSettings(getJsonSetting(getProfileId(req), PRINTER_SETTINGS_KEY, DEFAULT_PRINTER_SETTINGS))));
+app.put("/api/settings/printer", (req, res) => res.json(saveJsonSetting(getProfileId(req), PRINTER_SETTINGS_KEY, sanitizePrinterSettings(req.body || {}))));
+app.get("/api/settings/receipt-layout", (req, res) => res.json(sanitizeReceiptLayoutSettings(getJsonSetting(getProfileId(req), RECEIPT_LAYOUT_SETTINGS_KEY, DEFAULT_RECEIPT_LAYOUT_SETTINGS))));
+app.put("/api/settings/receipt-layout", (req, res) => res.json(saveJsonSetting(getProfileId(req), RECEIPT_LAYOUT_SETTINGS_KEY, sanitizeReceiptLayoutSettings(req.body || {}))));
 
-app.put("/api/settings/printer", (req, res) => {
-  res.json(saveJsonSetting(PRINTER_SETTINGS_KEY, sanitizePrinterSettings(req.body || {})));
-});
 
-app.get("/api/settings/receipt-layout", (req, res) => {
-  res.json(sanitizeReceiptLayoutSettings(getJsonSetting(RECEIPT_LAYOUT_SETTINGS_KEY, DEFAULT_RECEIPT_LAYOUT_SETTINGS)));
-});
-
-app.put("/api/settings/receipt-layout", (req, res) => {
-  res.json(saveJsonSetting(RECEIPT_LAYOUT_SETTINGS_KEY, sanitizeReceiptLayoutSettings(req.body || {})));
-});
-
-// ── Articles ──────────────────────────────────────────────────────────────────
-// ?includeHidden=1 liefert auch ausgeblendete Artikel (für die Artikelverwaltung).
-// Ohne den Parameter werden ausgeblendete Artikel weggelassen (für die Kasse).
+// ── Articles (profilabhängig) ───────────────────────────────────────────────
 app.get("/api/articles", (req, res) => {
+  const profileId = getProfileId(req);
   const { letter, includeHidden } = req.query;
-  const conditions = [];
-  const params = [];
-  if (letter && letter !== "ALL") {
-    conditions.push("UPPER(name) LIKE ?");
-    params.push(`${letter.toUpperCase()}%`);
-  }
-  if (includeHidden !== "1") {
-    conditions.push("hidden = 0");
-  }
-  let query = "SELECT * FROM articles";
-  if (conditions.length) query += " WHERE " + conditions.join(" AND ");
-  query += " ORDER BY name COLLATE NOCASE ASC";
+  const conditions = ["profile_id = ?"];
+  const params = [profileId];
+  if (letter && letter !== "ALL") { conditions.push("UPPER(name) LIKE ?"); params.push(`${letter.toUpperCase()}%`); }
+  if (includeHidden !== "1") conditions.push("hidden = 0");
+  const query = `SELECT * FROM articles WHERE ${conditions.join(" AND ")} ORDER BY name COLLATE NOCASE ASC`;
   res.json(db.prepare(query).all(...params));
 });
-
-// Sichtbarkeit eines Artikels umschalten (ein-/ausblenden)
 app.put("/api/articles/:id/visibility", (req, res) => {
-  const { hidden } = req.body || {};
-  const article = db.prepare("SELECT * FROM articles WHERE id = ?").get(req.params.id);
+  const profileId = getProfileId(req);
+  const article = db.prepare("SELECT * FROM articles WHERE id = ? AND profile_id = ?").get(req.params.id, profileId);
   if (!article) return res.status(404).json({ error: "not found" });
-  const newHidden = hidden ? 1 : 0;
-  db.prepare("UPDATE articles SET hidden = ? WHERE id = ?").run(newHidden, req.params.id);
-  res.json({ id: Number(req.params.id), hidden: newHidden });
+  const hidden = req.body?.hidden ? 1 : 0;
+  db.prepare("UPDATE articles SET hidden = ? WHERE id = ? AND profile_id = ?").run(hidden, req.params.id, profileId);
+  res.json({ id: Number(req.params.id), hidden });
 });
-
 app.post("/api/articles", upload.single("image"), handleUploadError, async (req, res) => {
+  const profileId = getProfileId(req);
   const { name, price } = req.body;
-  // Preise müssen > 0 sein, sonst widerspricht es dem Checkout (total > 0)
   const validPrice = positiveNumber(price);
   if (!name || validPrice === null) return res.status(400).json({ error: "Name und ein gültiger Preis (> 0) sind erforderlich" });
   try {
     const image = await saveProcessedImage(req.file);
-    const result = db.prepare("INSERT INTO articles (name, price, image) VALUES (?, ?, ?)").run(name, validPrice, image);
-    res.json({ id: result.lastInsertRowid, name, price: validPrice, image });
-  } catch (err) {
-    console.error("Bildverarbeitung fehlgeschlagen:", err.message);
-    res.status(400).json({ error: "Bild konnte nicht verarbeitet werden. Bitte ein anderes Foto versuchen." });
-  }
+    const result = db.prepare("INSERT INTO articles (profile_id, name, price, image) VALUES (?, ?, ?, ?)").run(profileId, name, validPrice, image);
+    res.json({ id: result.lastInsertRowid, profile_id: profileId, name, price: validPrice, image });
+  } catch (err) { console.error("Bildverarbeitung fehlgeschlagen:", err.message); res.status(400).json({ error: "Bild konnte nicht verarbeitet werden. Bitte ein anderes Foto versuchen." }); }
 });
-
 app.put("/api/articles/:id", upload.single("image"), handleUploadError, async (req, res) => {
+  const profileId = getProfileId(req);
   const { name, price } = req.body;
-  const article = db.prepare("SELECT * FROM articles WHERE id = ?").get(req.params.id);
+  const article = db.prepare("SELECT * FROM articles WHERE id = ? AND profile_id = ?").get(req.params.id, profileId);
   if (!article) return res.status(404).json({ error: "not found" });
   let newPrice = article.price;
-  if (price != null) {
-    const validPrice = positiveNumber(price);
-    if (validPrice === null) return res.status(400).json({ error: "Ungültiger Preis (muss > 0 sein)" });
-    newPrice = validPrice;
-  }
+  if (price != null) { const validPrice = positiveNumber(price); if (validPrice === null) return res.status(400).json({ error: "Ungültiger Preis (muss > 0 sein)" }); newPrice = validPrice; }
   try {
     const image = req.file ? await saveProcessedImage(req.file) : article.image;
-    db.prepare("UPDATE articles SET name = ?, price = ?, image = ? WHERE id = ?")
-      .run(name ?? article.name, newPrice, image, req.params.id);
+    db.prepare("UPDATE articles SET name = ?, price = ?, image = ? WHERE id = ? AND profile_id = ?").run(name ?? article.name, newPrice, image, req.params.id, profileId);
     res.json({ success: true });
-  } catch (err) {
-    console.error("Bildverarbeitung fehlgeschlagen:", err.message);
-    res.status(400).json({ error: "Bild konnte nicht verarbeitet werden. Bitte ein anderes Foto versuchen." });
-  }
+  } catch (err) { console.error("Bildverarbeitung fehlgeschlagen:", err.message); res.status(400).json({ error: "Bild konnte nicht verarbeitet werden. Bitte ein anderes Foto versuchen." }); }
 });
-
 app.delete("/api/articles/:id", (req, res) => {
-  db.prepare("DELETE FROM articles WHERE id = ?").run(req.params.id);
+  db.prepare("DELETE FROM articles WHERE id = ? AND profile_id = ?").run(req.params.id, getProfileId(req));
   res.json({ success: true });
 });
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function positiveNumber(value) {
-  const n = Number(value);
-  return Number.isFinite(n) && n > 0 ? n : null;
-}
+// ── Helpers / Kunden (global, Status + Guthaben pro Profil) ───────────────────
+function positiveNumber(value) { const n = Number(value); return Number.isFinite(n) && n > 0 ? n : null; }
+function nonNegativeNumber(value) { const n = Number(value); return Number.isFinite(n) && n >= 0 ? n : null; }
+function money(value) { return Math.round(Number(value) * 100) / 100; }
 
-function nonNegativeNumber(value) {
-  const n = Number(value);
-  return Number.isFinite(n) && n >= 0 ? n : null;
+function ensureCustomerProfile(customerId, profileId, { active = 0, balance = 0 } = {}) {
+  db.prepare("INSERT OR IGNORE INTO customer_profiles (customer_id, profile_id, active, balance) VALUES (?, ?, ?, ?)")
+    .run(customerId, profileId, active ? 1 : 0, money(balance));
 }
-
-// SQLite REAL kann bei vielen Additionen/Subtraktionen mit
-// Centbeträgen Rundungsartefakte erzeugen (z.B. 2.220446049250313e-16). Nach
-// jeder Guthaben-Änderung wird hart auf 2 Nachkommastellen gerundet.
-function money(value) {
-  return Math.round(Number(value) * 100) / 100;
-}
-
-function getCustomerWithTokens(customerId) {
-  const customer = db.prepare("SELECT * FROM customers WHERE id = ?").get(customerId);
+function getCustomerWithTokens(customerId, profileId = 1) {
+  const customer = db.prepare(`
+    SELECT c.id, c.name, c.created_at,
+           COALESCE(cp.balance, 0) AS balance,
+           COALESCE(cp.active, 0) AS profile_active
+    FROM customers c
+    LEFT JOIN customer_profiles cp ON cp.customer_id = c.id AND cp.profile_id = ?
+    WHERE c.id = ?
+  `).get(profileId, customerId);
   if (!customer) return null;
-  const tokens = db.prepare("SELECT * FROM payment_tokens WHERE customer_id = ? ORDER BY created_at").all(customerId);
-  return { ...customer, tokens };
+  const tokens = db.prepare("SELECT * FROM payment_tokens WHERE customer_id = ? ORDER BY created_at, id").all(customerId);
+  return { ...customer, profile_active: Boolean(customer.profile_active), tokens };
 }
-
-// case-insensitiver Fallback gilt NUR für NFC-Tokens.
-// Vorher matchte UPPER(value) auch QR-Codes — das ist gefährlich, weil QR-Werte
-// bewusst case-sensitiv sein können (z.B. Kunde A = "abc", Kunde B = "ABC" sind
-// zwei unterschiedliche, gültige UNIQUE-Werte). Ein breiter case-insensitiver
-// Treffer könnte sonst eine Zahlung dem falschen Kunden zuordnen.
-function findCustomerByToken(value) {
+function findCustomerByToken(value, profileId) {
   const exact = db.prepare("SELECT * FROM payment_tokens WHERE value = ? AND active = 1").get(value);
-  if (exact) return getCustomerWithTokens(exact.customer_id);
-
-  const nfcFallback = db.prepare(
-    "SELECT * FROM payment_tokens WHERE type = 'nfc' AND UPPER(value) = UPPER(?) AND active = 1"
-  ).get(value);
-  if (!nfcFallback) return null;
-  return getCustomerWithTokens(nfcFallback.customer_id);
+  const token = exact || db.prepare("SELECT * FROM payment_tokens WHERE type = 'nfc' AND UPPER(value) = UPPER(?) AND active = 1").get(value);
+  if (!token) return null;
+  const customer = getCustomerWithTokens(token.customer_id, profileId);
+  return customer?.profile_active ? customer : null;
+}
+function lookupCustomer(identifier, profileId) {
+  const id = String(identifier || "");
+  let customer = findCustomerByToken(id, profileId);
+  if (!customer && /^\d+$/.test(id)) customer = getCustomerWithTokens(Number(id), profileId);
+  if (!customer) {
+    const row = db.prepare("SELECT id FROM customers WHERE name = ? COLLATE NOCASE").get(id);
+    if (row) customer = getCustomerWithTokens(row.id, profileId);
+  }
+  return customer?.profile_active ? customer : null;
 }
 
-// ── Customers ─────────────────────────────────────────────────────────────────
-
-// List all customers with their active tokens
 app.get("/api/customers", (req, res) => {
-  const customers = db.prepare("SELECT * FROM customers ORDER BY name COLLATE NOCASE").all();
-  const tokens = db.prepare("SELECT * FROM payment_tokens ORDER BY created_at").all();
-  const result = customers.map(c => ({
-    ...c,
-    tokens: tokens.filter(t => t.customer_id === c.id),
-  }));
-  res.json(result);
+  const profileId = getProfileId(req);
+  const rows = db.prepare("SELECT id FROM customers ORDER BY name COLLATE NOCASE").all();
+  res.json(rows.map((r) => getCustomerWithTokens(r.id, profileId)));
 });
-
-// Create new customer, optionally with first token(s)
-// Kunde + Tokens werden in einer einzigen DB-Transaktion angelegt.
-// Vorher konnte bei "Beides" und einem bereits vergebenen QR-Code ein "Geisterkunde"
-// ohne Tokens in der DB übrigbleiben, obwohl die API einen Fehler zurückgab.
 app.post("/api/customers", (req, res) => {
+  const profileId = getProfileId(req);
   const { name, balance = 0, nfc_uid, qr_code } = req.body;
   if (!name) return res.status(400).json({ error: "Name ist erforderlich" });
-
   const startBalance = nonNegativeNumber(balance);
   if (startBalance === null) return res.status(400).json({ error: "Ungültiges Startguthaben" });
-
   try {
     const customer = db.transaction(() => {
-      const result = db.prepare("INSERT INTO customers (name, balance) VALUES (?, ?)").run(name, startBalance);
-      const customerId = result.lastInsertRowid;
-      // NFC-UID serverseitig normalisieren (Großbuchstaben),
-      // damit Groß-/Kleinschreibung nie zu "Karte nicht gefunden" führt
-      if (nfc_uid) {
-        db.prepare("INSERT INTO payment_tokens (customer_id, type, value) VALUES (?, 'nfc', ?)").run(customerId, String(nfc_uid).toUpperCase());
-      }
-      if (qr_code) {
-        db.prepare("INSERT INTO payment_tokens (customer_id, type, value) VALUES (?, 'qr', ?)").run(customerId, qr_code);
-      }
-      return getCustomerWithTokens(customerId);
+      const result = db.prepare("INSERT INTO customers (name, balance) VALUES (?, 0)").run(String(name).trim());
+      const id = result.lastInsertRowid;
+      db.prepare("INSERT INTO customer_profiles (customer_id, profile_id, active, balance) VALUES (?, ?, 1, ?)").run(id, profileId, money(startBalance));
+      if (nfc_uid) db.prepare("INSERT INTO payment_tokens (customer_id, type, value) VALUES (?, 'nfc', ?)").run(id, String(nfc_uid).toUpperCase());
+      if (qr_code) db.prepare("INSERT INTO payment_tokens (customer_id, type, value) VALUES (?, 'qr', ?)").run(id, qr_code);
+      return getCustomerWithTokens(id, profileId);
     })();
     res.json(customer);
-  } catch (e) {
-    res.status(409).json({ error: "NFC-UID oder QR-Code wird bereits verwendet" });
-  }
+  } catch (e) { res.status(409).json({ error: "NFC-UID oder QR-Code wird bereits verwendet" }); }
 });
-
 app.get("/api/customers/:id", (req, res) => {
-  const customer = getCustomerWithTokens(req.params.id);
+  const customer = getCustomerWithTokens(req.params.id, getProfileId(req));
   if (!customer) return res.status(404).json({ error: "Kunde nicht gefunden" });
   res.json(customer);
 });
-
 app.put("/api/customers/:id", (req, res) => {
-  const { name } = req.body;
+  const profileId = getProfileId(req);
   const customer = db.prepare("SELECT * FROM customers WHERE id = ?").get(req.params.id);
   if (!customer) return res.status(404).json({ error: "Kunde nicht gefunden" });
-  db.prepare("UPDATE customers SET name = ? WHERE id = ?").run(name ?? customer.name, req.params.id);
-  res.json(getCustomerWithTokens(req.params.id));
+  db.prepare("UPDATE customers SET name = ? WHERE id = ?").run(req.body?.name ?? customer.name, req.params.id);
+  res.json(getCustomerWithTokens(req.params.id, profileId));
 });
-
-app.delete("/api/customers/:id", (req, res) => {
-  db.prepare("DELETE FROM customers WHERE id = ?").run(req.params.id);
-  res.json({ success: true });
-});
-
-app.delete("/api/customers/:id/transactions", (req, res) => {
-  const customer = db.prepare("SELECT * FROM customers WHERE id = ?").get(req.params.id);
+app.put("/api/customers/:id/profile", (req, res) => {
+  const profileId = getProfileId(req);
+  const customer = db.prepare("SELECT id FROM customers WHERE id = ?").get(req.params.id);
   if (!customer) return res.status(404).json({ error: "Kunde nicht gefunden" });
-  db.prepare("DELETE FROM transactions WHERE customer_id = ?").run(req.params.id);
-  res.json({ success: true });
-});
-
-// ── Payment Tokens (NFC-Karten / QR-Codes) ───────────────────────────────────
-
-// Add a new token to an existing customer (e.g. "Mami bekommt jetzt auch einen QR-Code")
-app.post("/api/customers/:id/tokens", (req, res) => {
-  const { type, value } = req.body;
-  if (!type || !value) return res.status(400).json({ error: "type und value sind erforderlich" });
-  if (!["nfc", "qr"].includes(type)) return res.status(400).json({ error: "type muss 'nfc' oder 'qr' sein" });
-  const customer = db.prepare("SELECT * FROM customers WHERE id = ?").get(req.params.id);
-  if (!customer) return res.status(404).json({ error: "Kunde nicht gefunden" });
-  // NFC-Werte serverseitig normalisieren, unabhängig davon, ob das Frontend das schon tat
-  const normalizedValue = type === "nfc" ? String(value).toUpperCase() : value;
-  try {
-    db.prepare("INSERT INTO payment_tokens (customer_id, type, value) VALUES (?, ?, ?)").run(req.params.id, type, normalizedValue);
-    res.json(getCustomerWithTokens(req.params.id));
-  } catch (e) {
-    res.status(409).json({ error: "Dieser Wert wird bereits verwendet" });
+  ensureCustomerProfile(customer.id, profileId);
+  if (req.body?.active != null) db.prepare("UPDATE customer_profiles SET active = ? WHERE customer_id = ? AND profile_id = ?").run(req.body.active ? 1 : 0, customer.id, profileId);
+  if (req.body?.balance != null) {
+    const balance = nonNegativeNumber(req.body.balance);
+    if (balance === null) return res.status(400).json({ error: "Ungültiges Guthaben" });
+    db.prepare("UPDATE customer_profiles SET balance = ? WHERE customer_id = ? AND profile_id = ?").run(money(balance), customer.id, profileId);
   }
+  res.json(getCustomerWithTokens(customer.id, profileId));
+});
+app.delete("/api/customers/:id", (req, res) => { db.prepare("DELETE FROM customers WHERE id = ?").run(req.params.id); res.json({ success: true }); });
+app.delete("/api/customers/:id/transactions", (req, res) => {
+  const profileId = getProfileId(req);
+  if (!db.prepare("SELECT id FROM customers WHERE id = ?").get(req.params.id)) return res.status(404).json({ error: "Kunde nicht gefunden" });
+  db.prepare("DELETE FROM transactions WHERE customer_id = ? AND profile_id = ?").run(req.params.id, profileId);
+  res.json({ success: true });
 });
 
-// Deactivate a token (e.g. "Karte verloren") — keeps history, frees up nothing else
+app.post("/api/customers/:id/tokens", (req, res) => {
+  const profileId = getProfileId(req);
+  const { type, value } = req.body;
+  if (!["nfc","qr"].includes(type) || !value) return res.status(400).json({ error: "type und value sind erforderlich" });
+  if (!db.prepare("SELECT id FROM customers WHERE id = ?").get(req.params.id)) return res.status(404).json({ error: "Kunde nicht gefunden" });
+  const normalized = type === "nfc" ? String(value).toUpperCase() : String(value);
+  try { db.prepare("INSERT INTO payment_tokens (customer_id, type, value) VALUES (?, ?, ?)").run(req.params.id, type, normalized); res.json(getCustomerWithTokens(req.params.id, profileId)); }
+  catch { res.status(409).json({ error: "Dieser Wert wird bereits verwendet" }); }
+});
 app.post("/api/tokens/:tokenId/deactivate", (req, res) => {
   const token = db.prepare("SELECT * FROM payment_tokens WHERE id = ?").get(req.params.tokenId);
   if (!token) return res.status(404).json({ error: "Token nicht gefunden" });
   db.prepare("UPDATE payment_tokens SET active = 0 WHERE id = ?").run(req.params.tokenId);
-  res.json(getCustomerWithTokens(token.customer_id));
+  res.json(getCustomerWithTokens(token.customer_id, getProfileId(req)));
 });
-
 app.post("/api/tokens/:tokenId/reactivate", (req, res) => {
   const token = db.prepare("SELECT * FROM payment_tokens WHERE id = ?").get(req.params.tokenId);
   if (!token) return res.status(404).json({ error: "Token nicht gefunden" });
   db.prepare("UPDATE payment_tokens SET active = 1 WHERE id = ?").run(req.params.tokenId);
-  res.json(getCustomerWithTokens(token.customer_id));
+  res.json(getCustomerWithTokens(token.customer_id, getProfileId(req)));
 });
-
-// Permanently delete a token (e.g. typo cleanup)
 app.delete("/api/tokens/:tokenId", (req, res) => {
   const token = db.prepare("SELECT * FROM payment_tokens WHERE id = ?").get(req.params.tokenId);
   if (!token) return res.status(404).json({ error: "Token nicht gefunden" });
   db.prepare("DELETE FROM payment_tokens WHERE id = ?").run(req.params.tokenId);
-  res.json(getCustomerWithTokens(token.customer_id));
+  res.json(getCustomerWithTokens(token.customer_id, getProfileId(req)));
 });
-
-// Lookup: find customer by any active token value, by customer id, or by name
 app.get("/api/lookup/:identifier", (req, res) => {
-  const id = req.params.identifier;
-  let customer = findCustomerByToken(id);
-  if (!customer && /^\d+$/.test(id)) customer = getCustomerWithTokens(id);
-  // Fix: Name-Eingabe als Fallback erlauben, falls weder NFC/QR/ID passt.
-  // Case-insensitive, exakter Match (kein "LIKE"-Teilstring-Match, damit
-  // z.B. "Mia" nicht versehentlich auch "Miafamilie" treffen würde).
-  if (!customer) {
-    const byName = db.prepare("SELECT * FROM customers WHERE name = ? COLLATE NOCASE").get(id);
-    if (byName) customer = getCustomerWithTokens(byName.id);
-  }
-  if (!customer) return res.status(404).json({ error: "Kein Kunde mit dieser Karte/QR-Code/Name gefunden" });
+  const customer = lookupCustomer(req.params.identifier, getProfileId(req));
+  if (!customer) return res.status(404).json({ error: "Kunde ist in diesem Profil nicht aktiv oder wurde nicht gefunden" });
   res.json(customer);
 });
-
-// ── Topup ─────────────────────────────────────────────────────────────────────
 app.post("/api/customers/:id/topup", (req, res) => {
-  const rawAmount = positiveNumber(req.body.amount);
-  if (rawAmount === null) return res.status(400).json({ error: "Ungültiger Betrag" });
-  // Konsistenz mit dem Checkout-Fix: auch hier roh-Eingabe runden, bevor sie verbucht wird
-  const amount = money(rawAmount);
-  const customer = db.prepare("SELECT * FROM customers WHERE id = ?").get(req.params.id);
+  const profileId = getProfileId(req);
+  const amount = positiveNumber(req.body.amount);
+  if (amount === null) return res.status(400).json({ error: "Ungültiger Betrag" });
+  const customer = getCustomerWithTokens(req.params.id, profileId);
   if (!customer) return res.status(404).json({ error: "Kunde nicht gefunden" });
-
-  const doTopup = db.transaction(() => {
-    db.prepare("UPDATE customers SET balance = balance + ? WHERE id = ?").run(amount, req.params.id);
-    // nach der Addition hart auf Centbetrag runden, gegen Float-Drift
-    const fresh = db.prepare("SELECT balance FROM customers WHERE id = ?").get(req.params.id);
-    db.prepare("UPDATE customers SET balance = ? WHERE id = ?").run(money(fresh.balance), req.params.id);
-    db.prepare("INSERT INTO transactions (customer_id, amount, type, note) VALUES (?, ?, 'topup', 'Aufladung')").run(req.params.id, amount);
-  });
-  doTopup();
-
-  res.json(getCustomerWithTokens(req.params.id));
+  if (!customer.profile_active) return res.status(409).json({ error: "Kunde ist in diesem Profil nicht aktiv" });
+  db.transaction(() => {
+    db.prepare("UPDATE customer_profiles SET balance = ROUND((balance + ?) * 100) / 100 WHERE customer_id = ? AND profile_id = ?").run(money(amount), req.params.id, profileId);
+    db.prepare("INSERT INTO transactions (profile_id, customer_id, amount, type, note) VALUES (?, ?, ?, 'topup', 'Aufladung')").run(profileId, req.params.id, money(amount));
+  })();
+  res.json(getCustomerWithTokens(req.params.id, profileId));
 });
 
 
@@ -810,162 +813,80 @@ function normalizeCheckoutItems(body) {
 // atomare DB-Transaktion mit erneuter Balance-Prüfung innerhalb der Transaktion,
 // damit zwei nahezu gleichzeitige Zahlungen nicht doppelt abbuchen können.
 app.post("/api/checkout", (req, res) => {
+  const profileId = getProfileId(req);
   const { card_uid, items } = req.body;
   const rawTotal = positiveNumber(req.body.total);
   if (!card_uid || rawTotal === null) return res.status(400).json({ error: "card_uid und ein gültiger Betrag (> 0) sind erforderlich" });
-  // total VOR dem Balance-Vergleich runden. Ohne das kann das
-  // Frontend z.B. 0.30000000000000004 statt 0.30 schicken (0.1+0.2 in JS), und ein
-  // Kunde mit exakt 0.30 CHF Guthaben würde fälschlich abgelehnt (0.3 < 0.30...4).
   const total = money(rawTotal);
-
-  let customer = findCustomerByToken(card_uid);
-  if (!customer && /^\d+$/.test(card_uid)) customer = getCustomerWithTokens(card_uid);
-  // Name-Eingabe erlauben — derselbe Fallback wie im /api/lookup Endpoint
-  if (!customer) {
-    const byName = db.prepare("SELECT * FROM customers WHERE name = ? COLLATE NOCASE").get(card_uid);
-    if (byName) customer = getCustomerWithTokens(byName.id);
-  }
-  if (!customer) return res.status(404).json({ error: "Karte nicht gefunden" });
-
+  const customer = lookupCustomer(card_uid, profileId);
+  if (!customer) return res.status(404).json({ error: "Kunde ist in diesem Profil nicht aktiv oder wurde nicht gefunden" });
   try {
     const newBalance = db.transaction(() => {
-      // Erneut frisch aus der DB lesen, innerhalb der Transaktion — verhindert Race Conditions
-      const fresh = db.prepare("SELECT * FROM customers WHERE id = ?").get(customer.id);
-      if (fresh.balance < total) {
-        const err = new Error("INSUFFICIENT_BALANCE");
-        err.balance = fresh.balance;
-        throw err;
-      }
-      db.prepare("UPDATE customers SET balance = balance - ? WHERE id = ?").run(total, customer.id);
-      // nach der Subtraktion hart auf Centbetrag runden
-      const afterSub = db.prepare("SELECT balance FROM customers WHERE id = ?").get(customer.id);
-      db.prepare("UPDATE customers SET balance = ? WHERE id = ?").run(money(afterSub.balance), customer.id);
+      const fresh = db.prepare("SELECT balance, active FROM customer_profiles WHERE customer_id = ? AND profile_id = ?").get(customer.id, profileId);
+      if (!fresh?.active) throw Object.assign(new Error("INACTIVE_CUSTOMER"), { balance: fresh?.balance || 0 });
+      if (fresh.balance < total) throw Object.assign(new Error("INSUFFICIENT_BALANCE"), { balance: fresh.balance });
+      const nextBalance = money(fresh.balance - total);
+      db.prepare("UPDATE customer_profiles SET balance = ? WHERE customer_id = ? AND profile_id = ?").run(nextBalance, customer.id, profileId);
       const lineItems = normalizeCheckoutItems(req.body);
-      const noteItems = lineItems.length
-        ? lineItems.map((item) => `${item.article_name} x${item.quantity}`).join(", ")
-        : String(items || "");
-      const tx = db.prepare("INSERT INTO transactions (customer_id, amount, type, note) VALUES (?, ?, 'purchase', ?)")
-        .run(customer.id, total, `Einkauf: ${noteItems}`);
-      const insItem = db.prepare(`
-        INSERT INTO sale_items (transaction_id, customer_id, article_id, article_name, quantity, unit_price, total)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `);
-      lineItems.forEach((item) => {
-        insItem.run(tx.lastInsertRowid, customer.id, item.article_id, item.article_name, item.quantity, item.unit_price, item.total);
-      });
-      return db.prepare("SELECT balance FROM customers WHERE id = ?").get(customer.id).balance;
+      const noteItems = lineItems.length ? lineItems.map((item) => `${item.article_name} x${item.quantity}`).join(", ") : String(items || "");
+      const tx = db.prepare("INSERT INTO transactions (profile_id, customer_id, amount, type, note) VALUES (?, ?, ?, 'purchase', ?)").run(profileId, customer.id, total, `Einkauf: ${noteItems}`);
+      const ins = db.prepare("INSERT INTO sale_items (profile_id, transaction_id, customer_id, article_id, article_name, quantity, unit_price, total) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+      lineItems.forEach((item) => ins.run(profileId, tx.lastInsertRowid, customer.id, item.article_id, item.article_name, item.quantity, item.unit_price, item.total));
+      return nextBalance;
     })();
     res.json({ success: true, new_balance: newBalance, customer_name: customer.name });
   } catch (e) {
-    if (e.message === "INSUFFICIENT_BALANCE") {
-      return res.status(402).json({ error: "Guthaben zu niedrig", balance: e.balance });
-    }
+    if (e.message === "INSUFFICIENT_BALANCE") return res.status(402).json({ error: "Guthaben zu niedrig", balance: e.balance });
+    if (e.message === "INACTIVE_CUSTOMER") return res.status(409).json({ error: "Kunde ist in diesem Profil nicht aktiv", balance: e.balance });
     throw e;
   }
 });
 
-// ── Transactions ──────────────────────────────────────────────────────────────
+// ── Transactions / Statistik (profilabhängig) ────────────────────────────────
 app.get("/api/transactions", (req, res) => {
+  const profileId = getProfileId(req);
   const { customer_id } = req.query;
-  let q = "SELECT * FROM transactions";
-  const params = [];
-  if (customer_id) { q += " WHERE customer_id = ?"; params.push(customer_id); }
-  // datetime('now') hat nur Sekundenauflösung. id DESC als
-  // Tiebreaker sorgt dafür, dass Transaktionen innerhalb derselben Sekunde
-  // trotzdem in der korrekten Reihenfolge angezeigt werden.
+  let q = "SELECT * FROM transactions WHERE profile_id = ?";
+  const params = [profileId];
+  if (customer_id) { q += " AND customer_id = ?"; params.push(customer_id); }
   q += " ORDER BY created_at DESC, id DESC LIMIT 100";
   res.json(db.prepare(q).all(...params));
 });
 
-
 function parseItemsFromTransactionNote(note) {
   const raw = String(note || "").replace(/^Einkauf:\s*/i, "");
   if (!raw.trim()) return [];
-  return raw.split(",").map((part) => {
-    const clean = part.trim();
-    const m = clean.match(/^(.*?)\s+x(\d+)$/i);
-    return {
-      article_name: (m ? m[1] : clean).trim() || "Artikel",
-      quantity: m ? Math.max(1, Number(m[2])) : 1,
-      unit_price: 0,
-      total: 0,
-      legacy: true,
-    };
-  }).filter((x) => x.article_name);
+  return raw.split(",").map((part) => { const clean = part.trim(); const m = clean.match(/^(.*?)\s+x(\d+)$/i); return { article_name: (m ? m[1] : clean).trim() || "Artikel", quantity: m ? Math.max(1, Number(m[2])) : 1, unit_price: 0, total: 0, legacy: true }; }).filter((x) => x.article_name);
 }
-
 app.get("/api/statistics/sales", (req, res) => {
+  const profileId = getProfileId(req);
   const days = Number(req.query.days || 0);
-  const params = [];
-  let where = "WHERE t.type = 'purchase'";
-  if (Number.isFinite(days) && days > 0) {
-    where += " AND datetime(t.created_at) >= datetime('now', ?)";
-    params.push(`-${Math.round(days)} days`);
-  }
-
-  const transactions = db.prepare(`
-    SELECT t.id, t.customer_id, c.name AS customer_name, t.amount, t.note, t.created_at
-    FROM transactions t
-    LEFT JOIN customers c ON c.id = t.customer_id
-    ${where}
-    ORDER BY t.created_at DESC, t.id DESC
-    LIMIT 500
-  `).all(...params);
-
+  const params = [profileId];
+  let where = "WHERE t.profile_id = ? AND t.type = 'purchase'";
+  if (Number.isFinite(days) && days > 0) { where += " AND datetime(t.created_at) >= datetime('now', ?)"; params.push(`-${Math.round(days)} days`); }
+  const transactions = db.prepare(`SELECT t.id, t.customer_id, c.name AS customer_name, t.amount, t.note, t.created_at FROM transactions t LEFT JOIN customers c ON c.id = t.customer_id ${where} ORDER BY t.created_at DESC, t.id DESC LIMIT 500`).all(...params);
   const txIds = transactions.map((t) => t.id);
   let itemRows = [];
-  if (txIds.length) {
-    const placeholders = txIds.map(() => "?").join(",");
-    itemRows = db.prepare(`
-      SELECT * FROM sale_items
-      WHERE transaction_id IN (${placeholders})
-      ORDER BY sold_at DESC, id ASC
-    `).all(...txIds);
-  }
-
-  const byTx = new Map();
-  itemRows.forEach((item) => {
-    if (!byTx.has(item.transaction_id)) byTx.set(item.transaction_id, []);
-    byTx.get(item.transaction_id).push(item);
-  });
-
-  const summaryMap = new Map();
-  let totalQuantity = 0;
+  if (txIds.length) { const placeholders = txIds.map(() => "?").join(","); itemRows = db.prepare(`SELECT * FROM sale_items WHERE profile_id = ? AND transaction_id IN (${placeholders}) ORDER BY sold_at DESC, id ASC`).all(profileId, ...txIds); }
+  const byTx = new Map(); itemRows.forEach((item) => { if (!byTx.has(item.transaction_id)) byTx.set(item.transaction_id, []); byTx.get(item.transaction_id).push(item); });
+  const summaryMap = new Map(); let totalQuantity = 0;
   transactions.forEach((tx) => {
-    const items = byTx.get(tx.id)?.length ? byTx.get(tx.id) : parseItemsFromTransactionNote(tx.note);
-    tx.items = items;
+    const items = byTx.get(tx.id)?.length ? byTx.get(tx.id) : parseItemsFromTransactionNote(tx.note); tx.items = items;
     items.forEach((item) => {
       const key = String(item.article_id || item.article_name || "Artikel").toLowerCase();
-      const prev = summaryMap.get(key) || {
-        article_id: item.article_id || null,
-        article_name: item.article_name || "Artikel",
-        quantity: 0,
-        total_amount: 0,
-        sales_count: 0,
-        first_sold_at: tx.created_at,
-        last_sold_at: tx.created_at,
-      };
-      const qty = Math.max(0, Number(item.quantity || 0));
-      prev.quantity += qty;
-      prev.total_amount = money(prev.total_amount + Number(item.total || 0));
-      prev.sales_count += 1;
-      if (String(tx.created_at) < String(prev.first_sold_at)) prev.first_sold_at = tx.created_at;
-      if (String(tx.created_at) > String(prev.last_sold_at)) prev.last_sold_at = tx.created_at;
-      summaryMap.set(key, prev);
-      totalQuantity += qty;
+      const prev = summaryMap.get(key) || { article_id: item.article_id || null, article_name: item.article_name || "Artikel", quantity: 0, total_amount: 0, sales_count: 0, first_sold_at: tx.created_at, last_sold_at: tx.created_at };
+      const qty = Math.max(0, Number(item.quantity || 0)); prev.quantity += qty; prev.total_amount = money(prev.total_amount + Number(item.total || 0)); prev.sales_count += 1;
+      if (String(tx.created_at) < String(prev.first_sold_at)) prev.first_sold_at = tx.created_at; if (String(tx.created_at) > String(prev.last_sold_at)) prev.last_sold_at = tx.created_at;
+      summaryMap.set(key, prev); totalQuantity += qty;
     });
   });
+  const summary = [...summaryMap.values()].sort((a,b) => b.quantity-a.quantity || String(a.article_name).localeCompare(String(b.article_name), "de-CH"));
+  res.json({ totals: { sales_count: transactions.length, article_quantity: totalQuantity, revenue: money(transactions.reduce((sum, tx) => sum + Number(tx.amount || 0), 0)) }, summary, sales: transactions });
+});
 
-  const summary = [...summaryMap.values()].sort((a, b) => b.quantity - a.quantity || String(a.article_name).localeCompare(String(b.article_name), "de-CH"));
-  res.json({
-    totals: {
-      sales_count: transactions.length,
-      article_quantity: totalQuantity,
-      revenue: money(transactions.reduce((sum, tx) => sum + Number(tx.amount || 0), 0)),
-    },
-    summary,
-    sales: transactions,
-  });
+app.get("/api/status", (req, res) => {
+  const profile = profileToJson(db.prepare("SELECT * FROM profiles WHERE id = ?").get(getProfileId(req)));
+  res.json({ app: "KinderKasse", version: "2.0.0", profile });
 });
 
 app.listen(PORT, () => console.log(`Kasse backend running on :${PORT}`));

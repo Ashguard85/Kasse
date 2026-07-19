@@ -12,6 +12,7 @@ import {
   saveLastReceiptText,
 } from "../lib/escposPrinter";
 import { loadPrinterSettingsFromApi } from "../lib/printerSettingsSync";
+import { useProfile } from "../ProfileContext";
 
 const API = "/api";
 const LETTERS = ["ALL", ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("")];
@@ -67,7 +68,8 @@ function ArticleTile({ article, onClick }) {
 }
 
 export default function Kasse() {
-  const { cart, addToCart, removeFromCart, clearCart } = useCart(); // Warenkorb lebt im globalen Context, überlebt Seitenwechsel
+  const { cart, addToCart, removeFromCart, clearCart } = useCart();
+  const { activeProfile } = useProfile(); // Warenkorb lebt im globalen Context, überlebt Seitenwechsel
   const nfc = useNfc(); // geteilte, app-weite NFC-Box-Verbindung
   const [allArticles, setAllArticles] = useState([]); // ungefiltert, für die Buchstabenleiste
   const [articles, setArticles] = useState([]); // gefiltert für die Anzeige
@@ -141,7 +143,7 @@ export default function Kasse() {
         // bei Fehler bleiben alle Methoden sichtbar (Default-State)
       }
     })();
-  }, []);
+  }, [activeProfile?.id]);
 
   // Falls der aktuell gewählte Modus nicht (mehr) aktiv ist, auf die erste
   // aktive Methode wechseln — verhindert, dass ein unsichtbarer Modus aktiv bleibt.
@@ -151,6 +153,11 @@ export default function Kasse() {
       if (firstActive) setPayMode(firstActive);
     }
   }, [enabledModes, payMode]);
+
+  useEffect(() => {
+    setLastReceipt(getLastReceiptText());
+    setPrinterSettingsState(getPrinterSettings());
+  }, [activeProfile?.id]);
 
   useEffect(() => {
     const refresh = () => setPrinterSettingsState(getPrinterSettings());
@@ -165,7 +172,7 @@ export default function Kasse() {
       if (!cancelled && synced.printer) setPrinterSettingsState(synced.printer);
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [activeProfile?.id]);
 
   // Stop scanners on unmount
   useEffect(() => () => { stopQr(); stopNfc(); stopBleNfc(); }, []);
@@ -479,6 +486,21 @@ export default function Kasse() {
     <div className={styles.layout}>
       {/* Left */}
       <div className={styles.left}>
+        {activeProfile && (
+          <div
+            className={styles.profileBanner}
+            style={{
+              backgroundColor: activeProfile.theme?.bannerBackground,
+              color: activeProfile.theme?.bannerTextColor,
+              backgroundImage: activeProfile.theme?.bannerImageDataUrl
+                ? `linear-gradient(rgba(0,0,0,.18), rgba(0,0,0,.18)), url(${activeProfile.theme.bannerImageDataUrl})`
+                : "none",
+            }}
+          >
+            <strong>{activeProfile.name}</strong>
+            {activeProfile.theme?.bannerText && <span>{activeProfile.theme.bannerText}</span>}
+          </div>
+        )}
         <div className={styles.letterBar}>
           {LETTERS.map((l) => {
             // Buchstaben werden aus ALLEN Artikeln berechnet, nicht aus dem aktuell gefilterten Set

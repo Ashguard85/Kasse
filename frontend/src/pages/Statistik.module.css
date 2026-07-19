@@ -139,7 +139,7 @@
   gap: 6px;
 }
 .itemList span {
-  background: var(--gray-100);
+  background: var(--app-background, var(--gray-100));
   color: var(--gray-800);
   border-radius: 999px;
   padding: 5px 9px;
