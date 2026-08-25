@@ -9,8 +9,11 @@
   --green: #1a7a3c;
   --green-dark: #145c2d;
   --green-light: #e8f5ee;
+  --primary-text: #ffffff;
+  --primary-text-muted: rgba(255,255,255,.78);
   --yellow: #f5c400;
   --yellow-dark: #c99d00;
+  --accent-text: #17181c;
   --red: #e53e3e;
   --red-light: #fff5f5;
   --white: #ffffff;
@@ -27,6 +30,12 @@
   /* Tablet M11: ~960px CSS width landscape, 600px portrait */
   --nav-h: 52px;
   --nav-fixed-h: 64px;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --app-background: var(--gray-100);
+  --register-background: var(--gray-100);
+  --profile-banner-background: var(--green);
+  --profile-banner-text: white;
 }
 
 html {
@@ -44,7 +53,7 @@ body {
   overflow-x: hidden;
   overflow-y: auto;
   font-family: "Nunito", system-ui, sans-serif;
-  background: var(--gray-100);
+  background: var(--app-background, var(--gray-100));
   color: var(--gray-800);
   font-size: 15px;
   touch-action: pan-y manipulation;

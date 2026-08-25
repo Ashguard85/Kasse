@@ -12,6 +12,7 @@ import {
   saveLastReceiptText,
 } from "../lib/escposPrinter";
 import { loadPrinterSettingsFromApi } from "../lib/printerSettingsSync";
+import { useProfile } from "../ProfileContext";
 
 const API = "/api";
 const LETTERS = ["ALL", ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("")];
@@ -67,16 +68,21 @@ function ArticleTile({ article, onClick }) {
 }
 
 export default function Kasse() {
-  const { cart, addToCart, removeFromCart, clearCart } = useCart(); // Warenkorb lebt im globalen Context, überlebt Seitenwechsel
+  const { cart, addToCart, removeFromCart, clearCart } = useCart();
+  const { activeProfile } = useProfile(); // Warenkorb lebt im globalen Context, überlebt Seitenwechsel
   const nfc = useNfc(); // geteilte, app-weite NFC-Box-Verbindung
   const [allArticles, setAllArticles] = useState([]); // ungefiltert, für die Buchstabenleiste
   const [articles, setArticles] = useState([]); // gefiltert für die Anzeige
   const [letter, setLetter] = useState("ALL");
   const [page, setPage] = useState(0);
   const [phase, setPhase] = useState("shop"); // shop | payment | success | error
-  const [payMode, setPayMode] = useState("nfc"); // "nfc" | "qr" | "bleNfc" | "manual"
+  const [payMode, setPayMode] = useState("nfc"); // "nfc" | "qr" | "bleNfc" | "manual" | "cash"
   // Welche Methoden sind freigeschaltet (aus den Einstellungen, gemeinsam für alle Geräte)
-  const [enabledModes, setEnabledModes] = useState({ nfc: true, qr: true, bleNfc: true, manual: true });
+  const [enabledModes, setEnabledModes] = useState({ nfc: true, qr: true, bleNfc: true, manual: true, cash: true });
+  const [cashBreakdownEnabled, setCashBreakdownEnabled] = useState(false);
+  const [customerDisplayEnabled, setCustomerDisplayEnabled] = useState(false);
+  const [cashTendered, setCashTendered] = useState("");
+  const [displaySale, setDisplaySale] = useState(null);
   const [manualName, setManualName] = useState(""); // Kundenname per Tastatur eintippen
   const [nfcStatus, setNfcStatus] = useState("");
   const [cardInfo, setCardInfo] = useState(null);
@@ -131,26 +137,33 @@ export default function Kasse() {
         if (!res.ok) return;
         const data = await res.json();
         setEnabledModes(data.enabled);
+        setCashBreakdownEnabled(data.cashBreakdownEnabled === true);
+        setCustomerDisplayEnabled(data.customerDisplayEnabled === true);
         if (data.enabled[data.default]) {
           setPayMode(data.default);
         } else {
-          const firstActive = ["nfc", "qr", "bleNfc", "manual"].find((m) => data.enabled[m]);
+          const firstActive = ["nfc", "qr", "bleNfc", "manual", "cash"].find((m) => data.enabled[m]);
           if (firstActive) setPayMode(firstActive);
         }
       } catch {
         // bei Fehler bleiben alle Methoden sichtbar (Default-State)
       }
     })();
-  }, []);
+  }, [activeProfile?.id]);
 
   // Falls der aktuell gewählte Modus nicht (mehr) aktiv ist, auf die erste
   // aktive Methode wechseln — verhindert, dass ein unsichtbarer Modus aktiv bleibt.
   useEffect(() => {
     if (!enabledModes[payMode]) {
-      const firstActive = ["nfc", "qr", "bleNfc", "manual"].find((m) => enabledModes[m]);
+      const firstActive = ["nfc", "qr", "bleNfc", "manual", "cash"].find((m) => enabledModes[m]);
       if (firstActive) setPayMode(firstActive);
     }
   }, [enabledModes, payMode]);
+
+  useEffect(() => {
+    setLastReceipt(getLastReceiptText());
+    setPrinterSettingsState(getPrinterSettings());
+  }, [activeProfile?.id]);
 
   useEffect(() => {
     const refresh = () => setPrinterSettingsState(getPrinterSettings());
@@ -165,7 +178,7 @@ export default function Kasse() {
       if (!cancelled && synced.printer) setPrinterSettingsState(synced.printer);
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [activeProfile?.id]);
 
   // Stop scanners on unmount
   useEffect(() => () => { stopQr(); stopNfc(); stopBleNfc(); }, []);
@@ -175,6 +188,35 @@ export default function Kasse() {
   // Frontend rundet zusätzlich, damit gar nicht erst ein
   // verrauschter Float-Wert (z.B. 0.30000000000000004) ans Backend geschickt wird.
   const total = Math.round(cart.reduce((s, i) => s + i.price * i.qty, 0) * 100) / 100;
+
+  // Kundenanzeige: Zustand serverseitig pro Profil veröffentlichen.
+  // Fehler sind absichtlich still, damit ein ausgeschaltetes/zweites Tablet
+  // den eigentlichen Kassenbetrieb niemals blockiert.
+  useEffect(() => {
+    if (!customerDisplayEnabled) return;
+    const timer = setTimeout(() => {
+      apiFetch("/api/customer-display", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: phase,
+          paymentMode: phase === "success" && displaySale ? displaySale.paymentMode : payMode,
+          total: phase === "success" && displaySale ? displaySale.total : total,
+          tendered: phase === "success" && displaySale
+            ? displaySale.tendered
+            : payMode === "cash" && cashTendered !== "" ? Number(cashTendered) : null,
+          change: phase === "success" && displaySale
+            ? displaySale.change
+            : payMode === "cash" && cashTendered !== "" ? Math.max(0, Math.round((Number(cashTendered) - total) * 100) / 100) : null,
+          message: phase === "success" ? "Vielen Dank!" : phase === "error" ? errorMsg : "",
+          items: phase === "success" && displaySale
+            ? displaySale.items
+            : cart.map((item) => ({ name: item.name, qty: item.qty, price: item.price })),
+        }),
+      }).catch(() => {});
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [cart, total, phase, payMode, cashTendered, customerDisplayEnabled, errorMsg, displaySale]);
 
   // ── Swipe-Navigation zwischen Seiten ──
   // Reine Touch-Events statt einer externen Library, da nur ein simpler
@@ -218,11 +260,12 @@ export default function Kasse() {
       setPhase("payment");
       setCardInfo(null);
       setErrorMsg("");
-    } else if (payMode === "manual") {
+    } else if (payMode === "manual" || payMode === "cash") {
       setPhase("payment");
       setCardInfo(null);
       setErrorMsg("");
       setNfcStatus("");
+      if (payMode === "cash") setCashTendered(total.toFixed(2));
     } else {
       setPhase("payment");
       setCardInfo(null);
@@ -367,6 +410,78 @@ export default function Kasse() {
     processPayment(manualName.trim());
   };
 
+  const cashChange = Math.max(0, Math.round((Number(cashTendered || 0) - total) * 100) / 100);
+
+  const buildCashBreakdown = (amount) => {
+    let cents = Math.max(0, Math.round(Number(amount || 0) * 100));
+    const denominations = [20000, 10000, 5000, 2000, 1000, 500, 200, 100, 50, 20, 10, 5];
+    const rows = [];
+    for (const value of denominations) {
+      const count = Math.floor(cents / value);
+      if (count > 0) {
+        rows.push({ value: value / 100, count });
+        cents -= count * value;
+      }
+    }
+    if (cents > 0) rows.push({ value: cents / 100, count: 1, remainder: true });
+    return rows;
+  };
+
+  const processCashPayment = async () => {
+    const tendered = Number(cashTendered);
+    if (!Number.isFinite(tendered) || tendered < total || paymentDoneRef.current) return;
+    paymentDoneRef.current = true;
+    try {
+      const res = await apiFetch(`/api/checkout/cash`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          total,
+          tendered,
+          items: cart.map((i) => `${i.name} x${i.qty}`).join(", "),
+          line_items: cart.map((item) => ({
+            article_id: item.id,
+            name: item.name,
+            qty: item.qty,
+            unit_price: item.price,
+          })),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        paymentDoneRef.current = false;
+        setErrorMsg(data.error || "Barzahlung fehlgeschlagen");
+        setPhase("error");
+        return;
+      }
+      const receipt = buildReceiptText({
+        items: cart.map((item) => ({ name: item.name, qty: item.qty, price: item.price })),
+        total,
+        paymentMode: "cash",
+        cashTendered: data.tendered,
+        cashChange: data.change,
+        paidAt: new Date(),
+      });
+      saveLastReceiptText(receipt);
+      setLastReceipt(receipt);
+      setReceiptStatus("");
+      setDisplaySale({
+        items: cart.map((item) => ({ name: item.name, qty: item.qty, price: item.price })),
+        total,
+        paymentMode: "cash",
+        tendered: data.tendered,
+        change: data.change,
+      });
+      setCardInfo({ ...data, cash: true });
+      setPhase("success");
+      clearCart();
+    } catch {
+      paymentDoneRef.current = false;
+      setErrorMsg("Server nicht erreichbar. Bitte Verbindung prüfen und nochmal versuchen.");
+      setPhase("error");
+    }
+  };
+
   // try/catch für Netzwerkfehler bei der Zahlung
   const processPayment = async (identifier) => {
     setNfcStatus("Verarbeite Zahlung …");
@@ -403,6 +518,13 @@ export default function Kasse() {
         saveLastReceiptText(receipt);
         setLastReceipt(receipt);
         setReceiptStatus("");
+        setDisplaySale({
+          items: cart.map((item) => ({ name: item.name, qty: item.qty, price: item.price })),
+          total,
+          paymentMode: payMode,
+          tendered: null,
+          change: null,
+        });
         setCardInfo(data);
         setPhase("success");
         clearCart(); // erst hier wird der Warenkorb geleert — exakt wie gewünscht
@@ -458,6 +580,8 @@ export default function Kasse() {
     setNfcStatus("");
     setReceiptStatus("");
     setManualName("");
+    setCashTendered("");
+    setDisplaySale(null);
   };
 
   const retryPayment = () => {
@@ -479,6 +603,26 @@ export default function Kasse() {
     <div className={styles.layout}>
       {/* Left */}
       <div className={styles.left}>
+        {activeProfile && (
+          <div
+            className={styles.profileBanner}
+            style={{
+              backgroundColor: activeProfile.theme?.bannerBackground,
+              color: activeProfile.theme?.bannerImageDataUrl ? "#ffffff" : activeProfile.theme?.bannerTextColor,
+              backgroundImage: activeProfile.theme?.bannerImageDataUrl
+                ? `linear-gradient(rgba(0,0,0,.38), rgba(0,0,0,.38)), url(${activeProfile.theme.bannerImageDataUrl})`
+                : "none",
+            }}
+          >
+            {activeProfile.theme?.logoImageDataUrl && (
+              <img className={styles.profileLogo} src={activeProfile.theme.logoImageDataUrl} alt={`${activeProfile.name} Logo`} />
+            )}
+            <div className={styles.profileBannerText}>
+              <strong>{activeProfile.name}</strong>
+              {activeProfile.theme?.bannerText && <span>{activeProfile.theme.bannerText}</span>}
+            </div>
+          </div>
+        )}
         <div className={styles.letterBar}>
           {LETTERS.map((l) => {
             // Buchstaben werden aus ALLEN Artikeln berechnet, nicht aus dem aktuell gefilterten Set
@@ -551,6 +695,7 @@ export default function Kasse() {
             { id: "qr", label: "📷 QR" },
             { id: "bleNfc", label: "🔵 Box" },
             { id: "manual", label: "✏️ Name" },
+            { id: "cash", label: "💵 Bar" },
           ];
           const active = methodDefs.filter((m) => enabledModes[m.id]);
           if (active.length <= 1) return null;
@@ -572,6 +717,7 @@ export default function Kasse() {
           {payMode === "qr" && "📷 Mit QR-Code bezahlen"}
           {payMode === "bleNfc" && "🔵 Mit NFC-Box bezahlen"}
           {payMode === "manual" && "✏️ Name eingeben"}
+          {payMode === "cash" && "💵 Bar bezahlen"}
         </button>
         {cart.length > 0 && (
           <button className={styles.clearBtn} onClick={clearCart}>Warenkorb leeren</button>
@@ -603,6 +749,40 @@ export default function Kasse() {
                     <div className={styles.nfcIcon}>🔵</div>
                     <h2>Zahlung: {priceStr(total)}</h2>
                     <p className={styles.nfcStatus}>{nfcStatus}</p>
+                  </>
+                ) : payMode === "cash" ? (
+                  <>
+                    <div className={styles.nfcIcon}>💵</div>
+                    <h2>Zu zahlen: {priceStr(total)}</h2>
+                    <label className={styles.cashLabel}>Gegeben
+                      <input
+                        className={styles.cashInput}
+                        type="number"
+                        min={total}
+                        step="0.05"
+                        inputMode="decimal"
+                        value={cashTendered}
+                        onChange={(e) => setCashTendered(e.target.value)}
+                        autoFocus
+                      />
+                    </label>
+                    <div className={styles.cashQuick}>
+                      <button onClick={() => setCashTendered(total.toFixed(2))}>Exakt</button>
+                      {[10,20,50,100,200].filter((v) => v >= total).slice(0,4).map((v) => (
+                        <button key={v} onClick={() => setCashTendered(v.toFixed(2))}>CHF {v}</button>
+                      ))}
+                    </div>
+                    <div className={styles.changeAmount}>Rückgeld: <strong>{priceStr(cashChange)}</strong></div>
+                    {cashBreakdownEnabled && cashChange > 0 && (
+                      <div className={styles.breakdown}>
+                        {buildCashBreakdown(cashChange).map((row, i) => (
+                          <span key={`${row.value}-${i}`}>{row.count} × CHF {row.value.toFixed(2)}</span>
+                        ))}
+                      </div>
+                    )}
+                    <button className={styles.successBtn} onClick={processCashPayment} disabled={!Number.isFinite(Number(cashTendered)) || Number(cashTendered) < total}>
+                      Barzahlung abschliessen
+                    </button>
                   </>
                 ) : payMode === "manual" ? (
                   <>
@@ -637,7 +817,11 @@ export default function Kasse() {
               <>
                 <div className={styles.successIcon}>✅</div>
                 <h2>Bezahlt!</h2>
-                <p>{cardInfo?.customer_name && <strong>{cardInfo.customer_name}</strong>} — Neues Guthaben: <strong>{cardInfo ? priceStr(cardInfo.new_balance) : ""}</strong></p>
+                {cardInfo?.cash ? (
+                  <p>Bar bezahlt — Rückgeld: <strong>{priceStr(cardInfo.change || 0)}</strong></p>
+                ) : (
+                  <p>{cardInfo?.customer_name && <strong>{cardInfo.customer_name}</strong>} — Neues Guthaben: <strong>{cardInfo ? priceStr(cardInfo.new_balance) : ""}</strong></p>
+                )}
                 {receiptStatus && <p className={styles.receiptStatus}>{receiptStatus}</p>}
                 <button
                   className={styles.printBtn}

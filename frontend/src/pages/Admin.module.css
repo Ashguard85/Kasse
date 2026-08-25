@@ -9,7 +9,7 @@
 .formPanel {
   width: 260px;
   flex-shrink: 0;
-  background: white;
+  background: var(--surface, white);
   border-radius: var(--radius);
   padding: 16px;
   box-shadow: var(--shadow);
@@ -55,12 +55,12 @@
 
 .btnRow { display: flex; gap: 7px; }
 .primaryBtn {
-  flex: 1; background: var(--green); color: white;
+  flex: 1; background: var(--green); color: var(--primary-text, white);
   border-radius: var(--radius-sm); padding: 12px;
   font-size: 14px; font-weight: 800; min-height: 46px;
 }
 .cancelBtn {
-  background: var(--gray-100); color: var(--gray-600);
+  background: var(--app-background, var(--gray-100)); color: var(--gray-600);
   border-radius: var(--radius-sm); padding: 12px 14px;
   font-size: 13px; font-weight: 700; min-height: 46px;
 }
@@ -75,7 +75,7 @@
 /* List */
 .listPanel {
   flex: 1;
-  background: white;
+  background: var(--surface, white);
   border-radius: var(--radius);
   padding: 16px;
   box-shadow: var(--shadow);
@@ -123,7 +123,7 @@
 }
 
 .editBtn, .delBtn, .eyeBtn {
-  background: var(--gray-100); border-radius: 8px;
+  background: var(--app-background, var(--gray-100)); border-radius: 8px;
   width: 36px; height: 36px; font-size: 15px;
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
 }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import styles from "./Einstellungen.module.css";
 import {
   apiFetch,
@@ -12,96 +12,329 @@ import {
   importLocalData,
   resetLocalData,
 } from "../lib/api";
+import { DEFAULT_THEME } from "../lib/localDb";
+import {
+  THEME_PRESETS,
+  applyAppearanceMode,
+  getThemeChecks,
+  getThemeRuntime,
+  normalizeTheme,
+} from "../lib/themePresets";
+import { useProfile } from "../ProfileContext";
+import { useCart } from "../CartContext";
+import {
+  configureKiosk,
+  getKioskConfig,
+  removeKioskConfig,
+  setKioskLocked,
+  setSeenResetVersion,
+  verifyPin,
+} from "../lib/kiosk";
 
-// Anzeige-Infos für die vier Zahlungsmethoden
 const PAY_METHODS = [
-  { id: "nfc", icon: "📡", label: "NFC", desc: "Web NFC direkt am Gerät (nur Geräte mit eingebautem NFC)" },
-  { id: "qr", icon: "📷", label: "QR-Code", desc: "Kamera scannt den QR-Code der Karte" },
-  { id: "bleNfc", icon: "🔵", label: "NFC-Box", desc: "Externe ESP32-Bluetooth-Box (für Geräte ohne NFC)" },
-  { id: "manual", icon: "✏️", label: "Name", desc: "Kundenname von Hand eintippen" },
+  { id: "nfc", icon: "📡", label: "NFC", desc: "Web NFC direkt am Gerät" },
+  { id: "qr", icon: "📷", label: "QR-Code", desc: "Kamera scannt den QR-Code" },
+  { id: "bleNfc", icon: "🔵", label: "NFC-Box", desc: "Externe ESP32-Bluetooth-Box" },
+  { id: "manual", icon: "✏️", label: "Name", desc: "Kundenname von Hand eingeben" },
+  { id: "cash", icon: "💵", label: "Barzahlung", desc: "Bar kassieren und Rückgeld berechnen" },
 ];
 
+const SIMPLE_THEME_FIELDS = [
+  ["primaryColor", "Hauptfarbe"],
+  ["accentColor", "Akzentfarbe"],
+  ["pageBackground", "Seitenhintergrund"],
+  ["registerBackground", "Kassenhintergrund"],
+  ["bannerBackground", "Bannerfarbe"],
+];
+
+function readImageFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Bild konnte nicht gelesen werden"));
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function Einstellungen() {
-  const [enabled, setEnabled] = useState({ nfc: true, qr: true, bleNfc: true, manual: true });
+  const { profiles, activeProfile, refreshProfiles, switchProfile } = useProfile();
+  const { cart, clearCart } = useCart();
+  const [enabled, setEnabled] = useState({ nfc: true, qr: true, bleNfc: true, manual: true, cash: true });
   const [defaultMode, setDefaultMode] = useState("nfc");
+  const [cashBreakdownEnabled, setCashBreakdownEnabled] = useState(false);
+  const [customerDisplayEnabled, setCustomerDisplayEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState({ text: "", type: "" });
   const [serverUrl, setServerUrl] = useState(getApiBase());
   const [dataMode, setDataModeState] = useState(getDataMode());
-  const initialAccessConfig = getCloudflareAccessConfig();
-  const [cfClientId, setCfClientId] = useState(initialAccessConfig.clientId);
-  const [cfClientSecret, setCfClientSecret] = useState(initialAccessConfig.clientSecret);
-  const [cfSecretHidden, setCfSecretHidden] = useState(Boolean(initialAccessConfig.clientSecret));
+  const initialAccess = getCloudflareAccessConfig();
+  const [cfClientId, setCfClientId] = useState(initialAccess.clientId);
+  const [cfClientSecret, setCfClientSecret] = useState(initialAccess.clientSecret);
+  const [cfSecretHidden, setCfSecretHidden] = useState(Boolean(initialAccess.clientSecret));
+  const [newProfileName, setNewProfileName] = useState("");
+  const [profileName, setProfileName] = useState("");
+  const [theme, setTheme] = useState(() => normalizeTheme(DEFAULT_THEME));
   const msgTimerRef = useRef(null);
   const importFileRef = useRef(null);
+  const bannerFileRef = useRef(null);
+  const logoFileRef = useRef(null);
+  const [kioskConfig, setKioskConfigState] = useState(() => getKioskConfig());
+  const [kioskPin, setKioskPin] = useState("");
+  const [kioskPinConfirm, setKioskPinConfirm] = useState("");
+  const [kioskCurrentPin, setKioskCurrentPin] = useState("");
+  const [recoveryCode, setRecoveryCode] = useState("");
+
+  const preview = useMemo(() => getThemeRuntime({ ...DEFAULT_THEME, ...theme }), [theme]);
+  const contrastChecks = useMemo(() => getThemeChecks({ ...DEFAULT_THEME, ...theme }), [theme]);
 
   const showMsg = (text, type = "ok") => {
     if (msgTimerRef.current) clearTimeout(msgTimerRef.current);
     setMsg({ text, type });
-    msgTimerRef.current = setTimeout(() => setMsg({ text: "", type: "" }), 3500);
+    msgTimerRef.current = setTimeout(() => setMsg({ text: "", type: "" }), 3800);
+  };
+
+  const updateTheme = (patch) => {
+    setTheme((current) => normalizeTheme({ ...current, ...patch }));
   };
 
   const loadPaymentSettings = async () => {
     setLoading(true);
     try {
-      const res = await apiFetch(`/api/settings/payment`);
-      if (!res.ok) throw new Error("Datenfehler");
+      const res = await apiFetch("/api/settings/payment");
+      if (!res.ok) throw new Error();
       const data = await res.json();
       setEnabled(data.enabled);
       setDefaultMode(data.default);
+      setCashBreakdownEnabled(data.cashBreakdownEnabled === true);
+      setCustomerDisplayEnabled(data.customerDisplayEnabled === true);
       try { localStorage.setItem("kasseBleNfcEnabled", data.enabled?.bleNfc ? "1" : "0"); } catch {}
       window.dispatchEvent(new CustomEvent("kasse:payment-settings-updated", { detail: data }));
-    } catch (e) {
-      showMsg(dataMode === "local" ? "Lokale Einstellungen konnten nicht geladen werden" : "Einstellungen konnten nicht geladen werden", "err");
+    } catch {
+      showMsg("Einstellungen konnten nicht geladen werden", "err");
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadPaymentSettings();
-    return () => { if (msgTimerRef.current) clearTimeout(msgTimerRef.current); };
-    // bewusst nur beim ersten Mount; beim Wechsel des Datenmodus laden wir manuell neu.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (activeProfile) {
+      setProfileName(activeProfile.name);
+      setTheme(normalizeTheme({ ...DEFAULT_THEME, ...(activeProfile.theme || {}) }));
+      loadPaymentSettings();
+    }
+  }, [activeProfile?.id]);
+
+  useEffect(() => () => {
+    if (msgTimerRef.current) clearTimeout(msgTimerRef.current);
   }, []);
 
-  const toggleMethod = (id) => {
-    setEnabled((prev) => {
-      const next = { ...prev, [id]: !prev[id] };
-      // Wenn die gerade deaktivierte Methode der Standard war, Standard auf
-      // die erste noch aktive Methode verschieben.
-      if (!next[id] && defaultMode === id) {
-        const firstActive = PAY_METHODS.map((m) => m.id).find((m) => next[m]);
-        if (firstActive) setDefaultMode(firstActive);
-      }
-      return next;
-    });
+  useEffect(() => {
+    const refresh = () => setKioskConfigState(getKioskConfig());
+    window.addEventListener("kasse:kiosk-updated", refresh);
+    return () => window.removeEventListener("kasse:kiosk-updated", refresh);
+  }, []);
+
+  const selectProfile = async (id) => {
+    if (Number(id) === Number(activeProfile?.id)) return;
+    if (cart.length && !confirm("Beim Profilwechsel wird der aktuelle Warenkorb geleert. Profil wechseln?")) return;
+    clearCart();
+    await switchProfile(Number(id));
+    showMsg("Profil gewechselt ✓");
   };
 
+  const createProfile = async () => {
+    const name = newProfileName.trim();
+    if (!name) return showMsg("Bitte einen Profilnamen eingeben", "err");
+    try {
+      const res = await apiFetch("/api/profiles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, theme: normalizeTheme({ ...DEFAULT_THEME, bannerText: name }) }),
+      });
+      const data = await res.json();
+      if (!res.ok) return showMsg(data.error || "Profil konnte nicht erstellt werden", "err");
+      setNewProfileName("");
+      await refreshProfiles();
+      clearCart();
+      await switchProfile(data.id);
+      showMsg(`Profil „${data.name}“ erstellt ✓`);
+    } catch {
+      showMsg("Profil konnte nicht erstellt werden", "err");
+    }
+  };
+
+  const saveProfile = async () => {
+    if (!activeProfile) return;
+    try {
+      const cleanTheme = normalizeTheme(theme);
+      const res = await apiFetch(`/api/profiles/${activeProfile.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: profileName, theme: cleanTheme }),
+      });
+      const data = await res.json();
+      if (!res.ok) return showMsg(data.error || "Profil konnte nicht gespeichert werden", "err");
+      await refreshProfiles();
+      window.dispatchEvent(new CustomEvent("kasse:profiles-updated"));
+      showMsg("Profil und Design gespeichert ✓");
+    } catch {
+      showMsg("Profil konnte nicht gespeichert werden", "err");
+    }
+  };
+
+  const setProfileActive = async (profile, active) => {
+    if (!active && Number(profile.id) === Number(activeProfile?.id)
+      && !confirm("Aktives Profil archivieren? Danach wird auf ein anderes Profil gewechselt.")) return;
+    try {
+      const res = await apiFetch(`/api/profiles/${profile.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ active }),
+      });
+      const data = await res.json();
+      if (!res.ok) return showMsg(data.error || "Änderung fehlgeschlagen", "err");
+      const rows = await refreshProfiles();
+      if (!active && Number(profile.id) === Number(activeProfile?.id)) {
+        const next = rows.find((item) => item.active && Number(item.id) !== Number(profile.id));
+        if (next) {
+          clearCart();
+          await switchProfile(next.id);
+        }
+      }
+      showMsg(active ? "Profil reaktiviert ✓" : "Profil archiviert ✓");
+    } catch {
+      showMsg("Änderung fehlgeschlagen", "err");
+    }
+  };
+
+  const applyPreset = (preset) => {
+    setTheme((current) => normalizeTheme({
+      ...current,
+      ...preset.theme,
+      bannerText: current.bannerText,
+      bannerImageDataUrl: current.bannerImageDataUrl,
+      logoImageDataUrl: current.logoImageDataUrl,
+    }));
+    showMsg(`Vorlage „${preset.name}“ übernommen`);
+  };
+
+  const loadThemeImage = async (event, key, label) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const data = await readImageFile(file);
+      updateTheme({ [key]: data });
+      showMsg(`${label} geladen ✓`);
+    } catch {
+      showMsg(`${label} konnte nicht geladen werden`, "err");
+    } finally {
+      event.target.value = "";
+    }
+  };
+
+  const toggleMethod = (id) => setEnabled((previous) => {
+    const next = { ...previous, [id]: !previous[id] };
+    if (!next[id] && defaultMode === id) {
+      const first = PAY_METHODS.map((method) => method.id).find((method) => next[method]);
+      if (first) setDefaultMode(first);
+    }
+    return next;
+  });
+
   const activeCount = Object.values(enabled).filter(Boolean).length;
+
+  const savePayments = async () => {
+    if (!activeCount || !enabled[defaultMode]) return showMsg("Mindestens eine aktive Methode mit aktivem Standard ist nötig", "err");
+    try {
+      const res = await apiFetch("/api/settings/payment", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled, default: defaultMode, cashBreakdownEnabled, customerDisplayEnabled }),
+      });
+      const data = await res.json();
+      if (!res.ok) return showMsg(data.error || "Speichern fehlgeschlagen", "err");
+      setEnabled(data.enabled);
+      setDefaultMode(data.default);
+      setCashBreakdownEnabled(data.cashBreakdownEnabled === true);
+      setCustomerDisplayEnabled(data.customerDisplayEnabled === true);
+      window.dispatchEvent(new CustomEvent("kasse:payment-settings-updated", { detail: data }));
+      showMsg("Zahlungsmethoden gespeichert ✓");
+    } catch {
+      showMsg("Speichern fehlgeschlagen", "err");
+    }
+  };
+
+  const setupKioskPin = async () => {
+    if (kioskPin !== kioskPinConfirm) return showMsg("Die beiden PINs stimmen nicht überein", "err");
+    try {
+      try {
+        if (getDataMode() === "server") {
+          const resetRes = await apiFetch("/api/admin/kiosk-reset-version");
+          if (resetRes.ok) setSeenResetVersion((await resetRes.json()).version);
+        }
+      } catch {}
+      const code = await configureKiosk(kioskPin);
+      setRecoveryCode(code);
+      setKioskPin("");
+      setKioskPinConfirm("");
+      setKioskConfigState(getKioskConfig());
+      showMsg("Kassen-PIN eingerichtet ✓");
+    } catch (e) {
+      showMsg(e.message || "PIN konnte nicht eingerichtet werden", "err");
+    }
+  };
+
+  const activateKiosk = () => {
+    if (!getKioskConfig().configured) return showMsg("Bitte zuerst einen PIN einrichten", "err");
+    setKioskLocked(true);
+    window.location.hash = "#/";
+  };
+
+  const disableKiosk = async () => {
+    if (!(await verifyPin(kioskCurrentPin))) return showMsg("PIN ist nicht korrekt", "err");
+    removeKioskConfig();
+    setKioskCurrentPin("");
+    setRecoveryCode("");
+    setKioskConfigState(getKioskConfig());
+    showMsg("Kassenmodus und PIN entfernt ✓");
+  };
+
+  const changeKioskPin = async () => {
+    if (!(await verifyPin(kioskCurrentPin))) return showMsg("Aktueller PIN ist nicht korrekt", "err");
+    if (kioskPin !== kioskPinConfirm) return showMsg("Die beiden neuen PINs stimmen nicht überein", "err");
+    try {
+      const code = await configureKiosk(kioskPin);
+      setRecoveryCode(code);
+      setKioskPin("");
+      setKioskPinConfirm("");
+      setKioskCurrentPin("");
+      setKioskConfigState(getKioskConfig());
+      showMsg("PIN geändert – neuer Recovery-Code erstellt ✓");
+    } catch (e) {
+      showMsg(e.message || "PIN konnte nicht geändert werden", "err");
+    }
+  };
 
   const changeDataMode = async (mode) => {
     const next = setDataMode(mode);
     setDataModeState(next);
-    showMsg(next === "local" ? "Lokaler Datenmodus aktiv – kein Server nötig." : "Servermodus aktiv – Docker/Cloudflare wird verwendet.");
-    window.setTimeout(loadPaymentSettings, 50);
+    await refreshProfiles().catch(() => {});
+    showMsg(next === "local" ? "Lokaler Datenmodus aktiv" : "Servermodus aktiv");
   };
 
   const exportBackup = () => {
     try {
-      const json = exportLocalData();
-      const blob = new Blob([json], { type: "application/json" });
+      const blob = new Blob([exportLocalData()], { type: "application/json" });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      const date = new Date().toISOString().slice(0, 10);
-      a.href = url;
-      a.download = `kasse-backup-${date}.json`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `kasse-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
       URL.revokeObjectURL(url);
       showMsg("Backup exportiert ✓");
-    } catch (e) {
+    } catch {
       showMsg("Backup konnte nicht exportiert werden", "err");
     }
   };
@@ -110,78 +343,39 @@ export default function Einstellungen() {
     const file = event.target.files?.[0];
     if (!file) return;
     try {
-      const text = await file.text();
-      importLocalData(text);
+      importLocalData(await file.text());
+      await refreshProfiles();
       await loadPaymentSettings();
       showMsg("Backup importiert ✓");
-    } catch (e) {
+    } catch {
       showMsg("Backup konnte nicht importiert werden", "err");
     } finally {
-      if (event.target) event.target.value = "";
+      event.target.value = "";
     }
   };
 
   const resetLocalBackup = async () => {
-    if (!confirm("Lokale Daten wirklich zurücksetzen? Kunden, Guthaben und Verkäufe auf diesem Tablet gehen verloren.")) return;
+    if (!confirm("Lokale Daten wirklich zurücksetzen?")) return;
     resetLocalData();
+    await refreshProfiles();
     await loadPaymentSettings();
     showMsg("Lokale Daten zurückgesetzt");
-  };
-
-  const saveServerUrl = () => {
-    setApiBase(serverUrl);
-    showMsg("Server-Adresse gespeichert.");
   };
 
   const saveCloudflareAccess = () => {
     setCloudflareAccessConfig({ clientId: cfClientId, clientSecret: cfClientSecret });
     setCfSecretHidden(Boolean(cfClientSecret));
-    showMsg("Cloudflare-Access-Daten gespeichert.");
-  };
-
-  const clearCloudflareAccess = () => {
-    setCfClientId("");
-    setCfClientSecret("");
-    setCfSecretHidden(false);
-    setCloudflareAccessConfig({ clientId: "", clientSecret: "" });
-    showMsg("Cloudflare-Access-Daten gelöscht.");
+    showMsg("Cloudflare-Daten gespeichert");
   };
 
   const testConnection = async () => {
     try {
-      const res = await apiFetch(`/api/articles`);
+      const res = await apiFetch("/api/status");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      showMsg("Server-Verbindung funktioniert ✓");
-    } catch (e) {
-      showMsg(`Server nicht erreichbar: ${e.message || "Verbindungsfehler"}`, "err");
-    }
-  };
-
-  const save = async () => {
-    if (activeCount === 0) {
-      return showMsg("Mindestens eine Methode muss aktiv sein", "err");
-    }
-    if (!enabled[defaultMode]) {
-      return showMsg("Die Standard-Methode muss aktiviert sein", "err");
-    }
-    try {
-      const res = await apiFetch(`/api/settings/payment`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled, default: defaultMode }),
-      });
       const data = await res.json();
-      if (res.ok) {
-        setEnabled(data.enabled);
-        setDefaultMode(data.default);
-        try { localStorage.setItem("kasseBleNfcEnabled", data.enabled?.bleNfc ? "1" : "0"); } catch {}
-        window.dispatchEvent(new CustomEvent("kasse:payment-settings-updated", { detail: data }));
-        showMsg("Einstellungen gespeichert ✓");
-      } else {
-        showMsg(data.error || "Speichern fehlgeschlagen", "err");
-      }
-    } catch (e) {
-      showMsg("Server nicht erreichbar", "err");
+      showMsg(`Verbindung funktioniert – ${data.profile?.name || "Profil"} ✓`);
+    } catch (error) {
+      showMsg(`Server nicht erreichbar: ${error.message || "Verbindungsfehler"}`, "err");
     }
   };
 
@@ -191,78 +385,337 @@ export default function Einstellungen() {
     <div className={styles.page}>
       <div className={styles.card}>
         <h1 className={styles.title}>⚙️ Einstellungen</h1>
-        <p className={styles.intro}>
-          Lege fest, welche Zahlungsmethoden angezeigt werden und ob die App lokal auf dem Tablet oder mit deinem Kassenserver arbeitet.
-        </p>
+        <p className={styles.intro}>Profilwechsel, Design, Zahlungsmethoden und Verbindungseinstellungen.</p>
 
-        <h2 className={styles.sectionTitle}>💳 Zahlungsmethoden</h2>
+        <h2 className={styles.sectionTitle}>🏪 Aktives Profil</h2>
+        <div className={styles.serverBox}>
+          <div className={styles.profileSwitchRow}>
+            <label>
+              Profil
+              <select value={activeProfile?.id || ""} onChange={(event) => selectProfile(event.target.value)}>
+                {profiles.filter((profile) => profile.active).map((profile) => (
+                  <option key={profile.id} value={profile.id}>{profile.name}</option>
+                ))}
+              </select>
+            </label>
+            <span>Der Profilwechsel ist nur hier möglich.</span>
+          </div>
+          <div className={styles.profileCreateRow}>
+            <input
+              value={newProfileName}
+              onChange={(event) => setNewProfileName(event.target.value)}
+              placeholder="Neues Profil, z.B. Nagelstudio"
+            />
+            <button onClick={createProfile}>+ Profil erstellen</button>
+          </div>
+          {profiles.some((profile) => !profile.active) && (
+            <div className={styles.archiveList}>
+              {profiles.filter((profile) => !profile.active).map((profile) => (
+                <div key={profile.id}>
+                  <span>{profile.name}</span>
+                  <button className={styles.secondaryBtn} onClick={() => setProfileActive(profile, true)}>Reaktivieren</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {activeProfile && (
+          <>
+            <h2 className={styles.sectionTitle}>🎨 Profil und App-Design</h2>
+            <div className={styles.serverBox}>
+              <label className={styles.profileNameField}>
+                Profilname
+                <input value={profileName} onChange={(event) => setProfileName(event.target.value)} />
+              </label>
+              <label className={styles.profileNameField}>
+                Bannertext
+                <input
+                  value={theme.bannerText || ""}
+                  onChange={(event) => updateTheme({ bannerText: event.target.value })}
+                  placeholder="Willkommen im Einkaufsladen"
+                />
+              </label>
+
+              <h3 className={styles.subTitle}>Designvorlagen</h3>
+              <p className={styles.helpText}>Eine Vorlage setzt nur Farben und Darstellungsmodus. Eigene Bilder und Texte bleiben erhalten.</p>
+              <div className={styles.presetGrid}>
+                {THEME_PRESETS.map((preset) => (
+                  <button key={preset.id} className={styles.presetCard} onClick={() => applyPreset(preset)}>
+                    <span className={styles.presetHeading}><b>{preset.icon} {preset.name}</b><small>{preset.description}</small></span>
+                    <span className={styles.swatches}>
+                      <i style={{ background: preset.theme.primaryColor }} />
+                      <i style={{ background: preset.theme.accentColor }} />
+                      <i style={{ background: preset.theme.pageBackground }} />
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              <div className={styles.modeEditor}>
+                <div>
+                  <h3 className={styles.subTitle}>Darstellung</h3>
+                  <p className={styles.helpText}>Hell eignet sich für die meisten Tablets. Dunkel ist für gedämpfte Umgebungen gedacht.</p>
+                </div>
+                <div className={styles.modeButtons}>
+                  <button
+                    className={theme.appearanceMode !== "dark" ? styles.modeButtonActive : ""}
+                    onClick={() => setTheme(applyAppearanceMode(theme, "light"))}
+                  >☀️ Hell</button>
+                  <button
+                    className={theme.appearanceMode === "dark" ? styles.modeButtonActive : ""}
+                    onClick={() => setTheme(applyAppearanceMode(theme, "dark"))}
+                  >🌙 Dunkel</button>
+                </div>
+              </div>
+
+              <label className={styles.autoContrastRow}>
+                <input
+                  type="checkbox"
+                  checked={theme.autoContrast !== false}
+                  onChange={(event) => updateTheme({ autoContrast: event.target.checked })}
+                />
+                <span><strong>Farben automatisch lesbar halten</strong><small>Textfarben und dunkle Buttonfarbe werden automatisch berechnet.</small></span>
+              </label>
+
+              <div className={styles.colorGrid}>
+                {SIMPLE_THEME_FIELDS.map(([key, label]) => (
+                  <label key={key}>
+                    {label}
+                    <span>
+                      <input
+                        type="color"
+                        value={theme[key] || DEFAULT_THEME[key]}
+                        onChange={(event) => updateTheme({ [key]: event.target.value })}
+                      />
+                      <code>{theme[key]}</code>
+                    </span>
+                  </label>
+                ))}
+              </div>
+
+              {theme.autoContrast === false && (
+                <details className={styles.advancedColors}>
+                  <summary>Erweiterte Textfarben</summary>
+                  <div className={styles.colorGrid}>
+                    <label>
+                      Dunkle Hauptfarbe
+                      <span><input type="color" value={theme.primaryDark} onChange={(event) => updateTheme({ primaryDark: event.target.value })} /><code>{theme.primaryDark}</code></span>
+                    </label>
+                    <label>
+                      Banner-Textfarbe
+                      <span><input type="color" value={theme.bannerTextColor} onChange={(event) => updateTheme({ bannerTextColor: event.target.value })} /><code>{theme.bannerTextColor}</code></span>
+                    </label>
+                  </div>
+                </details>
+              )}
+
+              <div className={styles.imageEditor}>
+                <div>
+                  <h3 className={styles.subTitle}>Logo und Bannerbild</h3>
+                  <p className={styles.helpText}>Das Logo wird links im Kassenbanner angezeigt. Ein ruhiges, breites Bannerbild funktioniert am besten.</p>
+                </div>
+                <div className={styles.serverActions}>
+                  <button onClick={() => logoFileRef.current?.click()}>Logo wählen</button>
+                  <button className={styles.secondaryBtn} onClick={() => updateTheme({ logoImageDataUrl: "" })}>Logo entfernen</button>
+                  <button onClick={() => bannerFileRef.current?.click()}>Bannerbild wählen</button>
+                  <button className={styles.secondaryBtn} onClick={() => updateTheme({ bannerImageDataUrl: "" })}>Banner entfernen</button>
+                </div>
+                <input ref={logoFileRef} type="file" accept="image/*" hidden onChange={(event) => loadThemeImage(event, "logoImageDataUrl", "Logo")} />
+                <input ref={bannerFileRef} type="file" accept="image/*" hidden onChange={(event) => loadThemeImage(event, "bannerImageDataUrl", "Bannerbild")} />
+              </div>
+
+              <h3 className={styles.subTitle}>Live-Vorschau</h3>
+              <div className={styles.appPreview} style={{ background: preview.pageBackground, color: preview.palette.gray800 }}>
+                <div className={styles.previewNav} style={{ background: preview.primaryColor, color: preview.primaryText }}>
+                  <b>🛒 KinderKasse</b>
+                  <span style={{ background: preview.accentColor, color: preview.accentText }}>Kasse</span>
+                  <span>Produkte</span>
+                  <span>Einstellungen</span>
+                </div>
+                <div className={styles.previewRegister} style={{ background: preview.registerBackground }}>
+                  <div
+                    className={styles.bannerPreview}
+                    style={{
+                      backgroundColor: preview.bannerBackground,
+                      color: theme.bannerImageDataUrl ? "#ffffff" : preview.bannerTextColor,
+                      backgroundImage: theme.bannerImageDataUrl
+                        ? `linear-gradient(rgba(0,0,0,.38),rgba(0,0,0,.38)),url(${theme.bannerImageDataUrl})`
+                        : "none",
+                    }}
+                  >
+                    {theme.logoImageDataUrl && <img src={theme.logoImageDataUrl} alt="Profil-Logo" />}
+                    <span><strong>{profileName || activeProfile.name}</strong><small>{theme.bannerText}</small></span>
+                  </div>
+                  <div className={styles.previewContent}>
+                    <div className={styles.previewProducts}>
+                      {["Nagellack", "Maniküre", "Pflege"].map((item, index) => (
+                        <div key={item} style={{ background: preview.surface, color: preview.palette.gray800 }}>
+                          <b>{["💅", "✨", "🧴"][index]}</b><span>{item}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className={styles.previewCart} style={{ background: preview.surface, color: preview.palette.gray800 }}>
+                      <strong>Warenkorb</strong><span>Maniküre · 25.00 CHF</span>
+                      <button style={{ background: preview.primaryColor, color: preview.primaryText }}>Bezahlen</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className={styles.contrastGrid}>
+                {contrastChecks.map((check) => {
+                  const passed = check.ratio >= 4.5;
+                  return (
+                    <div key={check.id} className={passed ? styles.contrastOk : styles.contrastWarn}>
+                      <span>{passed ? "✓" : "!"}</span>
+                      <div><strong>{check.label}</strong><small>Kontrast {check.ratio.toFixed(1)}:1</small></div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className={styles.serverActions}>
+                <button onClick={saveProfile}>Profil und Design speichern</button>
+                <button
+                  className={styles.secondaryBtn}
+                  onClick={() => setTheme(normalizeTheme({ ...DEFAULT_THEME, bannerText: profileName || activeProfile.name }))}
+                >Standardfarben</button>
+                {profiles.filter((profile) => profile.active).length > 1 && (
+                  <button className={styles.dangerBtn} onClick={() => setProfileActive(activeProfile, false)}>Profil archivieren</button>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+
+        <div className={styles.settingsDivider} />
+        <h2 className={styles.sectionTitle}>💳 Zahlungsmethoden dieses Profils</h2>
         <div className={styles.methodList}>
-          {PAY_METHODS.map((m) => (
-            <div key={m.id} className={`${styles.methodRow} ${enabled[m.id] ? "" : styles.methodOff}`}>
-              <div className={styles.methodIcon}>{m.icon}</div>
+          {PAY_METHODS.map((method) => (
+            <div key={method.id} className={`${styles.methodRow} ${enabled[method.id] ? "" : styles.methodOff}`}>
+              <div className={styles.methodIcon}>{method.icon}</div>
               <div className={styles.methodInfo}>
-                <div className={styles.methodLabel}>{m.label}</div>
-                <div className={styles.methodDesc}>{m.desc}</div>
+                <div className={styles.methodLabel}>{method.label}</div>
+                <div className={styles.methodDesc}>{method.desc}</div>
               </div>
               <div className={styles.methodControls}>
                 <button
-                  className={`${styles.defaultBtn} ${defaultMode === m.id ? styles.defaultActive : ""}`}
-                  onClick={() => enabled[m.id] && setDefaultMode(m.id)}
-                  disabled={!enabled[m.id]}
-                  title="Als Standard setzen"
-                >
-                  {defaultMode === m.id ? "★ Standard" : "Standard"}
-                </button>
-                <button
-                  className={`${styles.toggle} ${enabled[m.id] ? styles.toggleOn : styles.toggleOff}`}
-                  onClick={() => toggleMethod(m.id)}
-                  title={enabled[m.id] ? "Deaktivieren" : "Aktivieren"}
-                >
+                  className={`${styles.defaultBtn} ${defaultMode === method.id ? styles.defaultActive : ""}`}
+                  onClick={() => enabled[method.id] && setDefaultMode(method.id)}
+                  disabled={!enabled[method.id]}
+                >{defaultMode === method.id ? "★ Standard" : "Standard"}</button>
+                <button className={`${styles.toggle} ${enabled[method.id] ? styles.toggleOn : styles.toggleOff}`} onClick={() => toggleMethod(method.id)}>
                   <span className={styles.toggleKnob} />
                 </button>
               </div>
             </div>
           ))}
         </div>
+        <div className={styles.serverBox}>
+          <h2>💵 Barzahlung</h2>
+          <p>Die Rückgeld-Stückelung ist optional und wird nur angezeigt, wenn sie hier aktiviert ist.</p>
+          <div className={styles.methodRow}>
+            <div className={styles.methodIcon}>🪙</div>
+            <div className={styles.methodInfo}>
+              <div className={styles.methodLabel}>Rückgeld-Stückelung anzeigen</div>
+              <div className={styles.methodDesc}>Vorschlag mit Schweizer Noten und Münzen, z. B. 20 + 10 + 1 + 0.50.</div>
+            </div>
+            <button className={`${styles.toggle} ${cashBreakdownEnabled ? styles.toggleOn : styles.toggleOff}`} onClick={() => setCashBreakdownEnabled((v) => !v)}>
+              <span className={styles.toggleKnob} />
+            </button>
+          </div>
+        </div>
 
-        {activeCount === 0 && (
-          <p className={styles.warn}>⚠️ Mindestens eine Methode muss aktiv sein.</p>
-        )}
+        <div className={styles.serverBox}>
+          <h2>🖥️ Kundenanzeige</h2>
+          <p>Überträgt den aktuellen Warenkorb und Zahlungsstatus an ein zweites Tablet über den Docker-Server.</p>
+          <div className={styles.methodRow}>
+            <div className={styles.methodIcon}>📺</div>
+            <div className={styles.methodInfo}>
+              <div className={styles.methodLabel}>Kundenanzeige aktivieren</div>
+              <div className={styles.methodDesc}>Das zweite Tablet öffnet die Ansicht <strong>#/kundendisplay</strong> und verwendet das aktuell gewählte Profil.</div>
+            </div>
+            <button className={`${styles.toggle} ${customerDisplayEnabled ? styles.toggleOn : styles.toggleOff}`} onClick={() => setCustomerDisplayEnabled((v) => !v)}>
+              <span className={styles.toggleKnob} />
+            </button>
+          </div>
+          <div className={styles.serverActions}>
+            <button className={styles.secondaryBtn} onClick={() => window.open(`${window.location.origin}${window.location.pathname}#/kundendisplay`, "_blank")}>Kundenanzeige öffnen</button>
+          </div>
+        </div>
 
-        <button className={styles.saveBtn} onClick={save} disabled={activeCount === 0 || loading}>
-          Zahlungsmethoden speichern
-        </button>
+        <button className={styles.saveBtn} onClick={savePayments} disabled={!activeCount || loading}>Zahlungsmethoden speichern</button>
 
         <div className={styles.settingsDivider} />
+        <h2 className={styles.sectionTitle}>🔐 Kassenmodus dieses Geräts</h2>
+        <div className={styles.serverBox}>
+          <h2>Nur die Kassenansicht anzeigen</h2>
+          <p>Der Kassenmodus gilt nur für dieses Tablet bzw. diesen Browser. Profile, Artikel, Karten, Drucker, Statistik und Einstellungen werden ausgeblendet. Zum Verlassen ist der PIN nötig.</p>
 
+          {!kioskConfig.configured ? (
+            <div className={styles.kioskSetup}>
+              <label>Neuer PIN
+                <input type="password" inputMode="numeric" maxLength={8} value={kioskPin} onChange={(e) => setKioskPin(e.target.value.replace(/\D/g, ""))} placeholder="4–8 Ziffern" />
+              </label>
+              <label>PIN wiederholen
+                <input type="password" inputMode="numeric" maxLength={8} value={kioskPinConfirm} onChange={(e) => setKioskPinConfirm(e.target.value.replace(/\D/g, ""))} placeholder="PIN wiederholen" />
+              </label>
+              <button onClick={setupKioskPin}>PIN einrichten</button>
+            </div>
+          ) : (
+            <>
+              <div className={styles.kioskStatus}>✅ PIN eingerichtet</div>
+              <div className={styles.serverActions}>
+                <button onClick={activateKiosk}>🔒 Kassenmodus jetzt aktivieren</button>
+              </div>
+              <details className={styles.advancedColors}>
+                <summary>PIN ändern oder Kassenmodus entfernen</summary>
+                <div className={styles.kioskSetup}>
+                  <label>Aktueller PIN
+                    <input type="password" inputMode="numeric" maxLength={8} value={kioskCurrentPin} onChange={(e) => setKioskCurrentPin(e.target.value.replace(/\D/g, ""))} />
+                  </label>
+                  <label>Neuer PIN
+                    <input type="password" inputMode="numeric" maxLength={8} value={kioskPin} onChange={(e) => setKioskPin(e.target.value.replace(/\D/g, ""))} placeholder="4–8 Ziffern" />
+                  </label>
+                  <label>Neuen PIN wiederholen
+                    <input type="password" inputMode="numeric" maxLength={8} value={kioskPinConfirm} onChange={(e) => setKioskPinConfirm(e.target.value.replace(/\D/g, ""))} />
+                  </label>
+                  <div className={styles.serverActions}>
+                    <button onClick={changeKioskPin}>PIN ändern</button>
+                    <button className={styles.dangerBtn} onClick={disableKiosk}>PIN und Kassenmodus entfernen</button>
+                  </div>
+                </div>
+              </details>
+            </>
+          )}
+
+          {recoveryCode && (
+            <div className={styles.recoveryBox}>
+              <strong>⚠️ Recovery-Code jetzt sichern</strong>
+              <code>{recoveryCode}</code>
+              <p>Der Code wird aus Sicherheitsgründen nur jetzt angezeigt. Damit kann auf dem Sperrbildschirm ein neuer PIN gesetzt werden.</p>
+              <button className={styles.secondaryBtn} onClick={() => navigator.clipboard?.writeText(recoveryCode)}>Code kopieren</button>
+            </div>
+          )}
+
+          <div className={styles.kioskDockerHint}>
+            <strong>Docker-Notfallreset:</strong>
+            <span>Falls PIN und Recovery-Code verloren sind, kann der Kassenmodus vom Docker-Host zurückgesetzt werden. Der genaue Befehl steht in <code>README-KASSENMODUS.md</code>. Der Reset entsperrt alle Kassenmodus-Geräte, die mit diesem Docker-Server verbunden sind. Dabei werden keine Profile, Kunden, Guthaben oder Verkäufe gelöscht.</span>
+          </div>
+        </div>
+
+        <div className={styles.settingsDivider} />
         <h2 className={styles.sectionTitle}>💾 Daten speichern</h2>
         <div className={styles.serverBox}>
           <h2>{dataMode === "local" ? "📱 Lokal auf diesem Tablet" : "🌐 Server / Docker"}</h2>
-          <p>
-            Im Lokalmodus laufen Kasse, Karten und Artikel ohne Docker-Server direkt auf dem Tablet. Im Servermodus nutzt die App dein Docker-Backend.
-          </p>
+          <p>Auch im Lokalmodus sind Profile, Produkte, Bons und Guthaben getrennt.</p>
           <div className={styles.modeChoice}>
-            <button
-              type="button"
-              className={`${styles.modeChoiceBtn} ${dataMode === "local" ? styles.modeChoiceActive : ""}`}
-              onClick={() => changeDataMode("local")}
-            >
-              📱 Lokal speichern
-              <span>funktioniert offline und ohne Server</span>
-            </button>
-            <button
-              type="button"
-              className={`${styles.modeChoiceBtn} ${dataMode === "server" ? styles.modeChoiceActive : ""}`}
-              onClick={() => changeDataMode("server")}
-            >
-              🌐 Server verwenden
-              <span>Docker/NAS/Cloudflare nutzen</span>
-            </button>
+            <button className={`${styles.modeChoiceBtn} ${dataMode === "local" ? styles.modeChoiceActive : ""}`} onClick={() => changeDataMode("local")}>📱 Lokal speichern<span>offline ohne Server</span></button>
+            <button className={`${styles.modeChoiceBtn} ${dataMode === "server" ? styles.modeChoiceActive : ""}`} onClick={() => changeDataMode("server")}>🌐 Server verwenden<span>Docker/NAS/Cloudflare</span></button>
           </div>
-
           {dataMode === "local" && (
             <div className={styles.localTools}>
-              <p><b>Backup:</b> Deine lokalen Daten liegen auf diesem Tablet. Exportiere ab und zu eine Sicherung.</p>
               <div className={styles.serverActions}>
                 <button onClick={exportBackup}>Backup exportieren</button>
                 <button className={styles.secondaryBtn} onClick={() => importFileRef.current?.click()}>Backup importieren</button>
@@ -276,83 +729,30 @@ export default function Einstellungen() {
         {dataMode === "server" && (
           <>
             <div className={styles.settingsDivider} />
-
-            <h2 className={styles.sectionTitle}>🔧 Server-Stammdaten</h2>
-
-        <div className={styles.serverBox}>
-          <h2>🔗 Server-Verbindung</h2>
-          <p>
-            Adresse deiner Kasse, z.B. <b>https://deine-domain</b> oder <b>http://192.168.1.50:3800</b>. Im Docker-Browserbetrieb kann das Feld leer bleiben, wenn die Webapp über denselben Server läuft.
-          </p>
-          <div className={styles.serverRow}>
-            <input
-              value={serverUrl}
-              onChange={(e) => setServerUrl(e.target.value)}
-              placeholder="Server-Adresse, z.B. https://kasse.example.ch"
-            />
-            <button onClick={saveServerUrl}>Speichern</button>
-            <button className={styles.testBtn} onClick={testConnection}>Test</button>
-          </div>
-        </div>
-
-        <div className={styles.serverBox}>
-          <h2>☁️ Cloudflare Access</h2>
-          <p>
-            Nur nötig, wenn deine Kasse über einen Cloudflare-Tunnel mit Access geschützt ist. Die App sendet diese Werte als Header mit.
-            In Cloudflare muss dafür eine <b>Service-Token/Service-Auth</b>-Regel für die Anwendung erlaubt sein.
-          </p>
-          <div className={styles.tokenGrid}>
-            <label>
-              Client ID
-              <input
-                value={cfClientId}
-                onChange={(e) => setCfClientId(e.target.value)}
-                placeholder="xxxxx.access"
-                autoComplete="off"
-                spellCheck="false"
-              />
-            </label>
-            <label>
-              Client Secret
-              <input
-                value={cfSecretDisplayValue}
-                onFocus={() => {
-                  if (cfSecretHidden) {
-                    setCfClientSecret("");
-                    setCfSecretHidden(false);
-                  }
-                }}
-                onChange={(e) => {
-                  setCfSecretHidden(false);
-                  setCfClientSecret(e.target.value);
-                }}
-                placeholder={cfSecretHidden ? "Gespeichert – zum Ändern antippen" : "Client Secret sichtbar eingeben"}
-                type="text"
-                autoComplete="off"
-                spellCheck="false"
-              />
-            </label>
-          </div>
-          <p className={styles.secretHint}>
-            Das Secret bleibt beim Eingeben sichtbar. Nach dem Speichern wird es in diesem Feld durch Sterne ersetzt.
-          </p>
-          <div className={styles.serverActions}>
-            <button onClick={saveCloudflareAccess}>Cloudflare-Daten speichern</button>
-            <button className={styles.secondaryBtn} onClick={clearCloudflareAccess}>Löschen</button>
-          </div>
-          <p className={styles.smallWarn}>
-            Hinweis: Diese Daten liegen auf dem Tablet. Für ein Kindergerät ist das praktisch, aber nicht hochsicher.
-          </p>
-        </div>
-
+            <h2 className={styles.sectionTitle}>🔧 Server</h2>
+            <div className={styles.serverBox}>
+              <h2>🔗 Server-Verbindung</h2>
+              <div className={styles.serverRow}>
+                <input value={serverUrl} onChange={(event) => setServerUrl(event.target.value)} placeholder="https://kasse.example.ch oder http://192.168.1.50:3800" />
+                <button onClick={() => { setApiBase(serverUrl); showMsg("Server-Adresse gespeichert"); }}>Speichern</button>
+                <button onClick={testConnection}>Test</button>
+              </div>
+            </div>
+            <div className={styles.serverBox}>
+              <h2>☁️ Cloudflare Access</h2>
+              <div className={styles.tokenGrid}>
+                <label>Client ID<input value={cfClientId} onChange={(event) => setCfClientId(event.target.value)} /></label>
+                <label>Client Secret<input value={cfSecretDisplayValue} onFocus={() => { if (cfSecretHidden) { setCfClientSecret(""); setCfSecretHidden(false); } }} onChange={(event) => setCfClientSecret(event.target.value)} type="text" /></label>
+              </div>
+              <div className={styles.serverActions}>
+                <button onClick={saveCloudflareAccess}>Cloudflare-Daten speichern</button>
+                <button className={styles.secondaryBtn} onClick={() => { setCfClientId(""); setCfClientSecret(""); setCfSecretHidden(false); setCloudflareAccessConfig({}); }}>Löschen</button>
+              </div>
+            </div>
           </>
         )}
 
-        {msg.text && (
-          <div className={`${styles.msg} ${msg.type === "err" ? styles.msgErr : styles.msgOk}`}>
-            {msg.text}
-          </div>
-        )}
+        {msg.text && <div className={`${styles.msg} ${msg.type === "err" ? styles.msgErr : styles.msgOk}`}>{msg.text}</div>}
       </div>
     </div>
   );

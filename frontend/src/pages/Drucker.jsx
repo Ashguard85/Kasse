@@ -25,6 +25,7 @@ export default function Drucker() {
   const [printerEnabled, setPrinterEnabled] = useState(initialPrinter.enabled);
   const [printerAddress, setPrinterAddress] = useState(initialPrinter.address);
   const [printerName, setPrinterName] = useState(initialPrinter.name);
+  const [printerAutoConnect, setPrinterAutoConnect] = useState(initialPrinter.autoConnect !== false);
   const [printers, setPrinters] = useState([]);
   const [printerLoading, setPrinterLoading] = useState(false);
   const [printing, setPrinting] = useState(false);
@@ -42,8 +43,38 @@ export default function Drucker() {
         setPrinterEnabled(synced.printer.enabled);
         setPrinterAddress(synced.printer.address);
         setPrinterName(synced.printer.name);
+        setPrinterAutoConnect(synced.printer.autoConnect !== false);
       }
       if (synced.layout) setLayout(synced.layout);
+
+      const activePrinter = synced.printer || getPrinterSettings();
+      if (isNativePrinterAvailable() && activePrinter.autoConnect !== false) {
+        try {
+          const devices = await listPairedPrinters();
+          if (cancelled) return;
+          const sorted = [...devices].sort((a, b) => {
+            if (a.printerLikely && !b.printerLikely) return -1;
+            if (!a.printerLikely && b.printerLikely) return 1;
+            return String(a.name || "").localeCompare(String(b.name || ""));
+          });
+          setPrinters(sorted);
+
+          if (activePrinter.address) {
+            const remembered = sorted.find((d) => d.address === activePrinter.address);
+            if (remembered) {
+              setPrinterAddress(remembered.address);
+              setPrinterName(remembered.name || activePrinter.name || "PT-210 Bondrucker");
+              setMsg({ text: `Drucker automatisch erkannt: ${remembered.name || remembered.address} ✓`, type: "ok" });
+            } else {
+              setMsg({ text: "Gespeicherter Drucker ist aktuell nicht gekoppelt oder nicht erreichbar.", type: "err" });
+            }
+          }
+        } catch (e) {
+          if (!cancelled && activePrinter.address) {
+            setMsg({ text: e?.message || "Gespeicherter Drucker konnte nicht automatisch geprüft werden.", type: "err" });
+          }
+        }
+      }
     })();
     return () => { cancelled = true; };
   }, []);
@@ -82,6 +113,7 @@ export default function Drucker() {
       enabled: printerEnabled,
       address: printerAddress,
       name: found?.name || printerName || "PT-210 Bondrucker",
+      autoConnect: printerAutoConnect,
     });
     setPrinterName(saved.name);
     showMsg(saved.enabled ? "Bondrucker gespeichert ✓" : "Bondrucker deaktiviert");
@@ -93,6 +125,7 @@ export default function Drucker() {
       enabled: printerEnabled,
       address: printerAddress,
       name: found?.name || printerName || "PT-210 Bondrucker",
+      autoConnect: printerAutoConnect,
     });
     if (!settings.enabled) return showMsg("Bondrucker ist deaktiviert", "err");
     if (!settings.address) return showMsg("Bitte zuerst den PT-210 auswählen", "err");
@@ -114,6 +147,7 @@ export default function Drucker() {
       enabled: printerEnabled,
       address: printerAddress,
       name: found?.name || printerName || "PT-210 Bondrucker",
+      autoConnect: printerAutoConnect,
     });
     const savedLayout = setReceiptLayoutSettings(layout);
     setLayout(savedLayout);
@@ -197,7 +231,7 @@ export default function Drucker() {
 
         <section className={styles.section}>
           <h2>GOOJPRT PT-210 / 58mm ESC/POS</h2>
-          <p>Den Drucker zuerst in Android per Bluetooth koppeln. Danach hier laden, auswählen, aktivieren und speichern.</p>
+          <p>Den Drucker einmal in Android per Bluetooth koppeln und hier speichern. Danach erkennt die App ihn automatisch wieder.</p>
 
           <div className={styles.printerTopRow}>
             <label className={styles.checkRow}>
@@ -207,6 +241,14 @@ export default function Drucker() {
                 onChange={(e) => setPrinterEnabled(e.target.checked)}
               />
               Bondrucker aktivieren
+            </label>
+            <label className={styles.checkRow}>
+              <input
+                type="checkbox"
+                checked={printerAutoConnect}
+                onChange={(e) => setPrinterAutoConnect(e.target.checked)}
+              />
+              Automatisch verbinden
             </label>
             <button className={styles.testBtn} onClick={refreshPrinters} disabled={printerLoading}>
               {printerLoading ? "Lade …" : "Gekoppelte Geräte laden"}

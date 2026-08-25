@@ -1,9 +1,11 @@
 import { Capacitor, registerPlugin } from "@capacitor/core";
+import { getActiveProfileId } from "./profile";
 
 const STORAGE_KEY = "kasseEscposPrinterSettings";
 const RECEIPT_LAYOUT_KEY = "kasseReceiptLayoutSettings";
 const LAST_RECEIPT_KEY = "kasseLastReceiptText";
 const DEFAULT_LINE_WIDTH = 32;
+const scopedKey = (base) => `${base}:${getActiveProfileId()}`;
 
 const CODE_PAGES = ["auto", "iso885915", "cp858", "cp850", "windows1252", "pc936", "gb18030", "replace"];
 const TEXT_STYLES = ["normal", "small", "bold", "large", "largeBold"];
@@ -45,14 +47,15 @@ export function isNativePrinterAvailable() {
 
 export function getPrinterSettings() {
   try {
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+    const parsed = JSON.parse(localStorage.getItem(scopedKey(STORAGE_KEY)) || "{}");
     return {
       enabled: Boolean(parsed.enabled),
       address: parsed.address || "",
       name: parsed.name || "",
+      autoConnect: parsed.autoConnect !== false,
     };
   } catch {
-    return { enabled: false, address: "", name: "" };
+    return { enabled: false, address: "", name: "", autoConnect: true };
   }
 }
 
@@ -61,15 +64,16 @@ export function setPrinterSettings(settings) {
     enabled: Boolean(settings?.enabled),
     address: settings?.address || "",
     name: settings?.name || "",
+    autoConnect: settings?.autoConnect !== false,
   };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  localStorage.setItem(scopedKey(STORAGE_KEY), JSON.stringify(next));
   window.dispatchEvent(new CustomEvent("kasse:printer-settings-updated", { detail: next }));
   return next;
 }
 
 export function getReceiptLayoutSettings() {
   try {
-    const parsed = JSON.parse(localStorage.getItem(RECEIPT_LAYOUT_KEY) || "{}");
+    const parsed = JSON.parse(localStorage.getItem(scopedKey(RECEIPT_LAYOUT_KEY)) || "{}");
     return sanitizeReceiptLayout(parsed);
   } catch {
     return { ...DEFAULT_RECEIPT_LAYOUT };
@@ -78,13 +82,13 @@ export function getReceiptLayoutSettings() {
 
 export function setReceiptLayoutSettings(layout) {
   const next = sanitizeReceiptLayout(layout);
-  localStorage.setItem(RECEIPT_LAYOUT_KEY, JSON.stringify(next));
+  localStorage.setItem(scopedKey(RECEIPT_LAYOUT_KEY), JSON.stringify(next));
   window.dispatchEvent(new CustomEvent("kasse:receipt-layout-updated", { detail: next }));
   return next;
 }
 
 export function resetReceiptLayoutSettings() {
-  localStorage.removeItem(RECEIPT_LAYOUT_KEY);
+  localStorage.removeItem(scopedKey(RECEIPT_LAYOUT_KEY));
   const next = { ...DEFAULT_RECEIPT_LAYOUT };
   window.dispatchEvent(new CustomEvent("kasse:receipt-layout-updated", { detail: next }));
   return next;
@@ -155,7 +159,7 @@ function receiptLogoBase64(dataUrl = "") {
 
 export function getLastReceiptText() {
   try {
-    return localStorage.getItem(LAST_RECEIPT_KEY) || "";
+    return localStorage.getItem(scopedKey(LAST_RECEIPT_KEY)) || "";
   } catch {
     return "";
   }
@@ -163,7 +167,7 @@ export function getLastReceiptText() {
 
 export function saveLastReceiptText(text) {
   try {
-    localStorage.setItem(LAST_RECEIPT_KEY, text || "");
+    localStorage.setItem(scopedKey(LAST_RECEIPT_KEY), text || "");
   } catch {}
 }
 
@@ -223,10 +227,10 @@ export async function renderReceiptImageDataUrl(text, layout = getReceiptLayoutS
   const paddingX = safeLayout.imagePaddingPx;
   const paddingTop = 18;
   const paddingBottom = 24;
-  const lines = String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+  const rawLines = String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
 
   const baseFontSize = safeLayout.previewFontSize === "large" ? 23 : safeLayout.previewFontSize === "small" ? 18 : 20;
-  const lineHeight = Math.round(baseFontSize * 1.35);
+  const lineHeight = Math.round(baseFontSize * 1.4);
   const bold = safeLayout.textStyle === "bold" || safeLayout.textStyle === "largeBold";
   const fontWeight = bold ? "700" : "500";
   const fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace';
@@ -248,6 +252,15 @@ export async function renderReceiptImageDataUrl(text, layout = getReceiptLayoutS
       logo = null;
     }
   }
+
+  const measureCanvas = document.createElement("canvas");
+  const measureCtx = measureCanvas.getContext("2d", { willReadFrequently: true });
+  if (!measureCtx) throw new Error("Bonbild konnte nicht vorbereitet werden.");
+  measureCtx.font = `${fontWeight} ${baseFontSize}px ${fontFamily}`;
+  const maxTextWidth = width - paddingX * 2;
+  const charWidth = Math.max(1, measureCtx.measureText("M").width);
+  const maxChars = Math.max(12, Math.floor(maxTextWidth / charWidth));
+  const lines = fitReceiptLinesForImage(rawLines, maxChars);
 
   const logoBlockHeight = logo ? logoH + 12 : 0;
   const height = Math.max(80, paddingTop + logoBlockHeight + lines.length * lineHeight + paddingBottom);
@@ -271,14 +284,9 @@ export async function renderReceiptImageDataUrl(text, layout = getReceiptLayoutS
   ctx.textBaseline = "top";
   ctx.font = `${fontWeight} ${baseFontSize}px ${fontFamily}`;
 
-  const maxTextWidth = width - paddingX * 2;
   for (const line of lines) {
-    let fontSize = baseFontSize;
-    ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
-    while (ctx.measureText(line).width > maxTextWidth && fontSize > 14) {
-      fontSize -= 1;
-      ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
-    }
+    // Einheitliche Schriftgrösse: lange Positionen werden umgebrochen statt verkleinert.
+    ctx.font = `${fontWeight} ${baseFontSize}px ${fontFamily}`;
     ctx.fillText(line, paddingX, y);
     y += lineHeight;
   }
@@ -303,7 +311,7 @@ export function buildTestReceipt(layout = getReceiptLayoutSettings()) {
 
 export function buildCharsetTestReceipt(layout = getReceiptLayoutSettings()) {
   const safeLayout = sanitizeReceiptLayout(layout);
-  const width = safeLayout.lineWidth;
+  const width = receiptLineWidth(safeLayout);
   const lines = [];
   lines.push(center("Umlaut-Test", width, safeLayout));
   lines.push(rule(width));
@@ -336,11 +344,11 @@ export function openReceiptPreview() {
 }
 
 export function buildReceiptText(
-  { items = [], total = 0, paymentMode = "", customerName = "", newBalance, paidAt = new Date() },
+  { items = [], total = 0, paymentMode = "", customerName = "", newBalance, cashTendered, cashChange, paidAt = new Date() },
   layout = getReceiptLayoutSettings()
 ) {
   const safeLayout = sanitizeReceiptLayout(layout);
-  const width = safeLayout.lineWidth;
+  const width = receiptLineWidth(safeLayout);
   const date = paidAt instanceof Date ? paidAt : new Date(paidAt);
   const lines = [];
 
@@ -361,10 +369,10 @@ export function buildReceiptText(
       left = `${qty}x ${name}`;
     }
 
-    lines.push(twoCols(left, right, width, safeLayout));
+    lines.push(...wrapTwoCols(left, right, width, safeLayout));
 
     if (safeLayout.showUnitPrice && qty > 1) {
-      lines.push(receiptClean(`  à CHF ${money(price)}`, safeLayout));
+      lines.push(...wrapReceiptText(`  à CHF ${money(price)}`, width));
     }
 
     if (safeLayout.itemSpacing === "wide" && index < items.length - 1) {
@@ -378,6 +386,10 @@ export function buildReceiptText(
   lines.push("");
 
   if (safeLayout.showPayment && paymentMode) lines.push(receiptClean(`Zahlung: ${paymentLabel(paymentMode)}`, safeLayout));
+  if (paymentMode === "cash" && cashTendered !== undefined && cashTendered !== null) {
+    lines.push(receiptClean(`Gegeben: CHF ${money(Number(cashTendered))}`, safeLayout));
+    lines.push(receiptClean(`Rückgeld: CHF ${money(Number(cashChange || 0))}`, safeLayout));
+  }
   if (safeLayout.showCustomer && customerName) lines.push(receiptClean(`Kunde: ${customerName}`, safeLayout));
   if (safeLayout.showBalance && newBalance !== undefined && newBalance !== null && !Number.isNaN(Number(newBalance))) {
     lines.push(receiptClean(`Restguthaben: CHF ${money(Number(newBalance))}`, safeLayout));
@@ -446,12 +458,29 @@ function sanitizeReceiptLayout(layout = {}) {
   };
 }
 
+function receiptLineWidth(layout = getReceiptLayoutSettings()) {
+  const safeLayout = sanitizeReceiptLayout(layout);
+  if (safeLayout.printMode !== "image") return safeLayout.lineWidth;
+
+  // Im Bildmodus muss die gewählte Schriftgrösse physisch auf 58 mm passen.
+  // Statt einzelne volle Zeilen zu verkleinern, wird die nutzbare Zeichenbreite
+  // reduziert und der Text dadurch einheitlich gross umgebrochen.
+  const baseWidth = safeLayout.previewFontSize === "large"
+    ? 27
+    : safeLayout.previewFontSize === "normal"
+      ? 31
+      : 32;
+  const paddingPenalty = Math.ceil(Number(safeLayout.imagePaddingPx || 0) / 8);
+  return Math.max(20, Math.min(safeLayout.lineWidth, baseWidth - paddingPenalty));
+}
+
 function paymentLabel(mode) {
   const map = {
     nfc: "NFC-Karte",
     qr: "QR-Code",
     bleNfc: "NFC-Box",
     manual: "Name manuell",
+    cash: "Bar",
   };
   return map[mode] || String(mode || "");
 }
@@ -482,6 +511,88 @@ function center(text, width = DEFAULT_LINE_WIDTH, layout = getReceiptLayoutSetti
   const clean = clip(receiptClean(text, layout), width);
   const pad = Math.max(0, Math.floor((width - clean.length) / 2));
   return `${" ".repeat(pad)}${clean}`;
+}
+
+function fitReceiptLinesForImage(lines, maxChars) {
+  const fitted = [];
+  for (const rawLine of lines) {
+    const line = String(rawLine ?? "");
+    if (!line) {
+      fitted.push("");
+      continue;
+    }
+
+    if (/^-+$/.test(line.trim())) {
+      fitted.push("-".repeat(maxChars));
+      continue;
+    }
+
+    const columns = line.match(/^(.*\S)\s{2,}(\S+)$/);
+    if (columns) {
+      fitted.push(...wrapTwoColsPlain(columns[1], columns[2], maxChars));
+      continue;
+    }
+
+    fitted.push(...wrapReceiptText(line, maxChars));
+  }
+  return fitted;
+}
+
+function wrapTwoCols(left, right, width = DEFAULT_LINE_WIDTH, layout = getReceiptLayoutSettings()) {
+  return wrapTwoColsPlain(receiptClean(left, layout), receiptClean(right, layout), width);
+}
+
+function wrapTwoColsPlain(left, right, width) {
+  const cleanLeft = String(left || "").trimEnd();
+  const cleanRight = String(right || "").trim();
+  const safeWidth = Math.max(8, Number(width) || DEFAULT_LINE_WIDTH);
+  const availableLeft = Math.max(1, safeWidth - cleanRight.length - 1);
+
+  if (cleanLeft.length <= availableLeft) {
+    return [alignTwoCols(cleanLeft, cleanRight, safeWidth)];
+  }
+
+  const wrapped = wrapReceiptText(cleanLeft, safeWidth);
+  const last = wrapped.pop() || "";
+  if (last.length <= availableLeft) {
+    wrapped.push(alignTwoCols(last, cleanRight, safeWidth));
+  } else {
+    wrapped.push(last);
+    wrapped.push(cleanRight.padStart(safeWidth));
+  }
+  return wrapped;
+}
+
+function alignTwoCols(left, right, width) {
+  const spaces = Math.max(1, width - left.length - right.length);
+  return `${left}${" ".repeat(spaces)}${right}`;
+}
+
+function wrapReceiptText(text, width) {
+  const value = String(text || "");
+  const safeWidth = Math.max(4, Number(width) || DEFAULT_LINE_WIDTH);
+  if (value.length <= safeWidth) return [value];
+
+  const indentMatch = value.match(/^\s*/);
+  const indent = (indentMatch?.[0] || "").slice(0, Math.max(0, safeWidth - 1));
+  const content = value.slice(indent.length).trimEnd();
+  const firstWidth = safeWidth - indent.length;
+  const result = [];
+  let remaining = content;
+  let first = true;
+
+  while (remaining.length > (first ? firstWidth : safeWidth)) {
+    const limit = first ? firstWidth : safeWidth;
+    let splitAt = remaining.lastIndexOf(" ", limit);
+    if (splitAt <= 0) splitAt = limit;
+    const chunk = remaining.slice(0, splitAt).trimEnd();
+    result.push(`${first ? indent : ""}${chunk}`);
+    remaining = remaining.slice(splitAt).trimStart();
+    first = false;
+  }
+
+  result.push(`${first ? indent : ""}${remaining}`);
+  return result;
 }
 
 function twoCols(left, right, width = DEFAULT_LINE_WIDTH, layout = getReceiptLayoutSettings()) {

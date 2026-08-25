@@ -315,7 +315,7 @@ export default function Karten() {
 
   const clearCustomerHistory = async (customer) => {
     if (!customer) return;
-    if (!confirm(`Verlauf von "${customer.name}" wirklich löschen? Guthaben und Zahlungsmittel bleiben erhalten.`)) return;
+    if (!confirm(`Verlauf von "${customer.name}" in diesem Profil wirklich löschen? Guthaben und Zahlungsmittel bleiben erhalten.`)) return;
     try {
       const res = await apiFetch(`/api/customers/${customer.id}/transactions`, { method: "DELETE" });
       if (res.ok) {
@@ -333,7 +333,7 @@ export default function Karten() {
 
   const deleteCustomer = async (customer) => {
     if (!customer) return;
-    if (!confirm(`Kunde "${customer.name}" endgültig löschen? Guthaben, Karten/QR und Verlauf werden gelöscht.`)) return;
+    if (!confirm(`Kunde "${customer.name}" endgültig in allen Profilen löschen? Alle Guthaben, Karten/QR und Verläufe werden gelöscht.`)) return;
     try {
       const res = await apiFetch(`/api/customers/${customer.id}`, { method: "DELETE" });
       if (res.ok) {
@@ -346,6 +346,27 @@ export default function Karten() {
         showMsg(d.error || "Kunde konnte nicht gelöscht werden", "err");
       }
     } catch (e) {
+      showMsg("Server nicht erreichbar", "err");
+    }
+  };
+
+
+  const toggleCustomerProfile = async (customer) => {
+    if (!customer) return;
+    const nextActive = !customer.profile_active;
+    if (!nextActive && !confirm(`Kunde "${customer.name}" in diesem Profil deaktivieren? Guthaben und Verlauf bleiben erhalten.`)) return;
+    try {
+      const res = await apiFetch(`/api/customers/${customer.id}/profile`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ active: nextActive }),
+      });
+      const data = await res.json();
+      if (!res.ok) return showMsg(data.error || "Status konnte nicht geändert werden", "err");
+      setSelected(data);
+      await fetchCustomers();
+      showMsg(nextActive ? "Kunde in diesem Profil aktiviert ✓" : "Kunde in diesem Profil deaktiviert");
+    } catch {
       showMsg("Server nicht erreichbar", "err");
     }
   };
@@ -479,11 +500,11 @@ export default function Karten() {
               const activeTokens = tokens.filter(t => t.active);
               const isOpen = selected?.id === c.id;
               return (
-                <article key={c.id} className={`${styles.customerCard} ${isOpen ? styles.customerOpen : ""}`}>
+                <article key={c.id} className={`${styles.customerCard} ${isOpen ? styles.customerOpen : ""} ${!c.profile_active ? styles.customerInactive : ""}`}>
                   <button type="button" className={styles.customerSummary} onClick={() => selectCustomer(c)}>
                     <span className={styles.avatar}>👤</span>
                     <span className={styles.customerMain}>
-                      <strong>{c.name}</strong>
+                      <strong>{c.name} {!c.profile_active && <span className={styles.profileInactiveBadge}>in diesem Profil inaktiv</span>}</strong>
                       <span>
                         {activeTokens.length > 0
                           ? activeTokens.slice(0, 2).map(t => `${t.type === "nfc" ? "📡" : "📷"} ${t.value}`).join(" · ")
@@ -501,9 +522,12 @@ export default function Karten() {
                           <strong className={`${styles.detailBalance} ${selected.balance < 1 ? styles.balanceLowText : ""}`}>{priceStr(selected.balance)}</strong>
                         </div>
                         <div className={styles.detailActions}>
-                          <button type="button" className={styles.secondaryBtn} onClick={() => setTopupId(String(selected.id))}>
-                            Für Aufladung wählen
+                          <button type="button" className={selected.profile_active ? styles.secondaryBtn : styles.primaryBtn} onClick={() => toggleCustomerProfile(selected)}>
+                            {selected.profile_active ? "In diesem Profil deaktivieren" : "In diesem Profil aktivieren"}
                           </button>
+                          {selected.profile_active && <button type="button" className={styles.secondaryBtn} onClick={() => setTopupId(String(selected.id))}>
+                            Für Aufladung wählen
+                          </button>}
                           <button type="button" className={styles.dangerBtn} onClick={() => clearCustomerHistory(selected)}>
                             Verlauf löschen
                           </button>

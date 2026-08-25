@@ -1,7 +1,7 @@
 .page {
   min-height: calc(100dvh - var(--nav-h));
   padding: clamp(10px, 2vw, 20px);
-  background: var(--gray-100);
+  background: var(--app-background, var(--gray-100));
   padding-bottom: max(24px, env(safe-area-inset-bottom));
   overflow: visible;
 }
@@ -9,7 +9,7 @@
 .card {
   width: min(920px, 100%);
   margin: 0 auto;
-  background: white;
+  background: var(--surface, white);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   padding: clamp(14px, 2.2vw, 22px);
@@ -60,7 +60,7 @@
   width: 42px;
   height: 42px;
   border-radius: 12px;
-  background: white;
+  background: var(--surface, white);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -114,7 +114,7 @@
   font-size: clamp(15px, 1.8vw, 17px);
   font-weight: 800;
   color: var(--gray-800);
-  background: white;
+  background: var(--surface, white);
 }
 
 .field input:focus,
@@ -139,7 +139,7 @@
 .modeSwitch,
 .modeSwitchSmall {
   display: grid;
-  background: var(--gray-100);
+  background: var(--app-background, var(--gray-100));
   border-radius: 10px;
   padding: 4px;
   gap: 4px;
@@ -160,7 +160,7 @@
 }
 
 .modeActive {
-  background: white;
+  background: var(--surface, white);
   color: var(--green);
   box-shadow: 0 1px 7px rgba(0,0,0,0.10);
 }
@@ -181,7 +181,7 @@
   flex: 0 0 46px;
   min-height: 44px;
   border-radius: 10px;
-  background: var(--gray-100);
+  background: var(--app-background, var(--gray-100));
   font-size: 20px;
   display: inline-flex;
   align-items: center;
@@ -199,7 +199,7 @@
   font-size: 14px;
   white-space: nowrap;
 }
-.quickBtn:hover { background: var(--green); color: white; }
+.quickBtn:hover { background: var(--green); color: var(--primary-text, white); }
 
 .primaryBtn,
 .secondaryBtn,
@@ -214,7 +214,7 @@
   width: 100%;
   margin-top: 12px;
   background: var(--green);
-  color: white;
+  color: var(--primary-text, white);
   box-shadow: 0 4px 12px rgba(26,122,60,0.16);
 }
 .primaryBtn:hover:not(:disabled) { background: var(--green-dark); }
@@ -222,7 +222,7 @@
 
 .secondaryBtn,
 .overviewBtn {
-  background: var(--gray-100);
+  background: var(--app-background, var(--gray-100));
   color: var(--gray-800);
 }
 .secondaryBtn:hover,
@@ -232,7 +232,7 @@
   margin-top: 10px;
   padding: 10px 12px;
   border-radius: 10px;
-  background: white;
+  background: var(--surface, white);
   color: var(--gray-600);
   font-size: 13px;
   line-height: 1.35;
@@ -257,7 +257,7 @@
 }
 
 .customerCard {
-  background: white;
+  background: var(--surface, white);
   border: 2px solid var(--gray-100);
   border-radius: 14px;
   overflow: hidden;
@@ -270,7 +270,7 @@
   align-items: center;
   gap: 12px;
   padding: 12px;
-  background: white;
+  background: var(--surface, white);
   color: inherit;
   text-align: left;
 }
@@ -280,7 +280,7 @@
   width: 42px;
   height: 42px;
   border-radius: 12px;
-  background: var(--gray-100);
+  background: var(--app-background, var(--gray-100));
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -330,7 +330,7 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-  background: #fffefa;
+  background: var(--surface, #fffefa);
 }
 
 .detailTop {
@@ -396,7 +396,7 @@
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  background: var(--gray-100);
+  background: var(--app-background, var(--gray-100));
   font-size: 14px;
 }
 .iconSmBtn:hover { background: var(--yellow); }
@@ -457,7 +457,7 @@
   width: min(460px, 94vw);
   max-height: 92vh;
   overflow-y: auto;
-  background: white;
+  background: var(--surface, white);
   border-radius: 24px;
   padding: clamp(22px, 3.4vw, 34px);
   text-align: center;
@@ -474,7 +474,7 @@
   min-height: 48px;
   border-radius: 10px;
   padding: 12px 16px;
-  background: var(--gray-100);
+  background: var(--app-background, var(--gray-100));
   color: var(--gray-600);
   font-size: 16px;
 }
@@ -494,7 +494,7 @@
   width: min(920px, 94vw);
   max-height: 88vh;
   overflow-y: auto;
-  background: white;
+  background: var(--surface, white);
   border-radius: 22px;
   padding: clamp(16px, 2.5vw, 24px);
   display: flex;
@@ -510,7 +510,7 @@
 .overviewHeader h3 { font-size: clamp(18px, 2.2vw, 24px); font-weight: 900; }
 .overviewActions { display: flex; gap: 8px; align-items: center; }
 .closeBtn {
-  background: var(--gray-100);
+  background: var(--app-background, var(--gray-100));
   color: var(--gray-600);
   width: 42px;
   height: 42px;
@@ -570,7 +570,7 @@
 @media print {
   :global(body) * { visibility: hidden; }
   .overlay, .overlay * { visibility: visible; }
-  .overlay { position: fixed; inset: 0; background: white; }
+  .overlay { position: fixed; inset: 0; background: var(--surface, white); }
   .overviewActions, .scanBtn, .closeBtn, .noPrint { display: none !important; }
   .overviewModal { box-shadow: none; max-height: none; width: 100%; }
 }
@@ -604,3 +604,6 @@
   .detailActions { width: 100%; justify-content: stretch; }
   .detailActions button { flex: 1 1 100%; }
 }
+
+.customerInactive { opacity: .65; border-style: dashed !important; }
+.profileInactiveBadge { display:inline-block; margin-left:8px; padding:3px 7px; border-radius:999px; background:var(--gray-200); color:var(--gray-600); font-size:10px; font-weight:900; vertical-align:middle; }

@@ -4,6 +4,7 @@
   height: 100%;
   gap: 0;
   position: relative;
+  background: var(--register-background, var(--gray-100));
 }
 
 /* ── Left: article browser ── */
@@ -17,12 +18,33 @@
   min-width: 0;
 }
 
+
+.profileBanner {
+  min-height: 68px;
+  flex-shrink: 0;
+  border-radius: var(--radius);
+  background: var(--profile-banner-background, var(--green));
+  color: var(--profile-banner-text, white);
+  background-size: cover;
+  background-position: center;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  text-align: center;
+  padding: 10px 16px;
+  box-shadow: var(--shadow);
+}
+.profileBanner strong { font-size: clamp(20px, 3vw, 30px); font-weight: 900; text-shadow: 0 2px 5px rgba(0,0,0,.28); }
+.profileBanner span { font-size: clamp(12px, 1.7vw, 16px); font-weight: 800; text-shadow: 0 2px 5px rgba(0,0,0,.28); }
+
 /* Letter filter */
 .letterBar {
   display: flex;
   flex-wrap: wrap;
   gap: 3px;
-  background: white;
+  background: var(--surface, white);
   border-radius: var(--radius);
   padding: 6px 8px;
   box-shadow: var(--shadow);
@@ -41,7 +63,7 @@
   transition: background 0.12s, color 0.12s;
 }
 .letterBtn:hover { background: var(--green-light); color: var(--green); }
-.letterActive { background: var(--green) !important; color: white !important; }
+.letterActive { background: var(--green) !important; color: var(--primary-text, white) !important; }
 
 /* 3×3 grid — fills available height. touch-action: pan-y erlaubt vertikales
    Scrollen (falls nötig), aber horizontale Wischgesten werden nicht vom
@@ -185,7 +207,7 @@
 }
 .pagination button {
   background: var(--green);
-  color: white;
+  color: var(--primary-text, white);
   border-radius: 9px;
   padding: 8px 20px;
   font-size: 15px;
@@ -199,7 +221,7 @@
 .right {
   width: 260px;
   flex-shrink: 0;
-  background: white;
+  background: var(--surface, white);
   display: flex;
   flex-direction: column;
   box-shadow: -3px 0 16px rgba(0,0,0,0.08);
@@ -207,7 +229,7 @@
 
 .cartHeader {
   background: var(--green);
-  color: white;
+  color: var(--primary-text, white);
   font-size: 17px;
   font-weight: 900;
   padding: 13px 16px;
@@ -272,7 +294,7 @@
 .payBtn {
   margin: 0 10px 8px;
   background: var(--green);
-  color: white;
+  color: var(--primary-text, white);
   border-radius: var(--radius-sm);
   padding: 14px;
   font-size: 16px;
@@ -306,7 +328,7 @@
   z-index: 100;
 }
 .modal {
-  background: white;
+  background: var(--surface, white);
   border-radius: 26px;
   padding: 40px 36px;
   width: 440px;
@@ -330,7 +352,7 @@
   font-size: 18px; font-weight: 700; width: 100%; min-height: 56px;
 }
 .successBtn {
-  background: var(--green); color: white;
+  background: var(--green); color: var(--primary-text, white);
   border-radius: var(--radius-sm); padding: 18px 28px;
   font-size: 20px; font-weight: 800; width: 100%; min-height: 58px;
 }
@@ -358,7 +380,7 @@
   white-space: nowrap;
 }
 .modeActive {
-  background: white;
+  background: var(--surface, white);
   color: var(--green);
   box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }
@@ -778,4 +800,85 @@
 }
 .reprintBtn:disabled {
   opacity: 0.6;
+}
+
+.profileLogo {
+  width: clamp(46px, 7vw, 68px);
+  height: clamp(46px, 7vw, 68px);
+  object-fit: contain;
+  flex: 0 0 auto;
+  border-radius: 14px;
+  padding: 4px;
+  background: rgba(255,255,255,.88);
+  box-shadow: 0 3px 12px rgba(0,0,0,.18);
+}
+
+.profileBannerText {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+}
+
+
+/* ── Barzahlung ── */
+.cashLabel {
+  width: 100%;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--gray-600);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cashInput {
+  width: 100%;
+  border: 3px solid var(--gray-200);
+  border-radius: var(--radius-sm);
+  padding: 16px 18px;
+  font-size: 30px;
+  font-weight: 900;
+  text-align: center;
+  color: var(--gray-800);
+  background: var(--surface, white);
+}
+.cashInput:focus { outline: none; border-color: var(--green); }
+.cashQuick {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+  gap: 8px;
+}
+.cashQuick button {
+  background: var(--gray-100);
+  color: var(--gray-800);
+  border-radius: 9px;
+  padding: 11px 8px;
+  font-weight: 900;
+  min-height: 44px;
+}
+.changeAmount {
+  width: 100%;
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  background: var(--green-light);
+  color: var(--green-dark);
+  font-size: 22px;
+  font-weight: 800;
+}
+.breakdown {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 7px;
+}
+.breakdown span {
+  background: var(--gray-100);
+  color: var(--gray-800);
+  border-radius: 999px;
+  padding: 7px 11px;
+  font-size: 14px;
+  font-weight: 800;
 }
