@@ -12,6 +12,8 @@ import { NfcProvider } from "./NfcContext";
 import NfcStatus from "./NfcStatus";
 import styles from "./App.module.css";
 import { ProfileProvider, useProfile } from "./ProfileContext";
+import { CustomerDisplayBleProvider } from "./CustomerDisplayBleContext";
+import { DrawerProvider } from "./DrawerContext";
 import { apiFetch, getDataMode } from "./lib/api";
 import {
   applyServerResetVersion,
@@ -178,7 +180,11 @@ export default function App() {
     <NfcProvider>
       <CartProvider>
         <ProfileProvider>
-          <AppShell />
+          <CustomerDisplayBleProvider>
+            <DrawerProvider>
+              <AppShell />
+            </DrawerProvider>
+          </CustomerDisplayBleProvider>
         </ProfileProvider>
       </CartProvider>
     </NfcProvider>

@@ -32,6 +32,9 @@ export default function Karten() {
   // Add-token form (within selected customer detail)
   const [newTokenType, setNewTokenType] = useState("nfc");
   const [newTokenValue, setNewTokenValue] = useState("");
+  const [pinMode, setPinMode] = useState("off");
+  const [pinValue, setPinValue] = useState("");
+  const [pinThreshold, setPinThreshold] = useState("5");
 
   const videoRef = useRef(null);
   const scannerRef = useRef(null);
@@ -226,6 +229,9 @@ export default function Karten() {
   // ── Select customer / load transactions ──
   const selectCustomer = async (customer) => {
     setSelected(customer);
+    setPinMode(customer.payment_pin_mode || "off");
+    setPinValue("");
+    setPinThreshold(String(customer.payment_pin_threshold ?? 5));
     try {
       const res = await apiFetch(`/api/transactions?customer_id=${customer.id}`);
       if (!res.ok) throw new Error();
@@ -233,6 +239,35 @@ export default function Karten() {
     } catch (e) {
       setTransactions([]);
       showMsg("Verlauf konnte nicht geladen werden", "err");
+    }
+  };
+
+  const savePaymentPin = async () => {
+    if (!selected) return;
+    if (pinMode !== "off" && !selected.payment_pin_configured && !/^\d{4,8}$/.test(pinValue)) {
+      return showMsg("Bitte einen PIN mit 4–8 Ziffern festlegen", "err");
+    }
+    if (pinValue && !/^\d{4,8}$/.test(pinValue)) return showMsg("PIN muss aus 4–8 Ziffern bestehen", "err");
+    try {
+      const res = await apiFetch(`/api/customers/${selected.id}/payment-pin`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: pinMode,
+          pin: pinValue,
+          threshold: pinMode === "threshold" ? Number(pinThreshold || 0) : 0,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) return showMsg(data.error || "PIN konnte nicht gespeichert werden", "err");
+      setSelected(data);
+      setPinMode(data.payment_pin_mode || "off");
+      setPinThreshold(String(data.payment_pin_threshold ?? 5));
+      setPinValue("");
+      await fetchCustomers();
+      showMsg(pinMode === "off" ? "Zahlungs-PIN deaktiviert ✓" : "Zahlungs-PIN gespeichert ✓");
+    } catch {
+      showMsg("Server nicht erreichbar", "err");
     }
   };
 
@@ -535,6 +570,34 @@ export default function Karten() {
                             Kunde löschen
                           </button>
                         </div>
+                      </div>
+
+                      <div className={styles.detailBlock}>
+                        <h3>🔐 Zahlungs-PIN</h3>
+                        <p className={styles.hint}>Optionaler PIN für Einkäufe mit Kundenkarte/NFC/QR. Die Eingabe erfolgt am Kundendisplay.</p>
+                        <div className={styles.pinSettings}>
+                          <label>
+                            PIN-Regel
+                            <select value={pinMode} onChange={(e) => setPinMode(e.target.value)}>
+                              <option value="off">Kein PIN</option>
+                              <option value="always">PIN immer verlangen</option>
+                              <option value="threshold">PIN ab Betrag</option>
+                            </select>
+                          </label>
+                          {pinMode === "threshold" && (
+                            <label>
+                              Ab CHF
+                              <input type="number" min="0" step="0.50" value={pinThreshold} onChange={(e) => setPinThreshold(e.target.value)} />
+                            </label>
+                          )}
+                          {pinMode !== "off" && (
+                            <label>
+                              {selected.payment_pin_configured ? "Neuer PIN (leer = behalten)" : "PIN"}
+                              <input type="password" inputMode="numeric" maxLength={8} value={pinValue} onChange={(e) => setPinValue(e.target.value.replace(/\D/g,""))} placeholder="4–8 Ziffern" />
+                            </label>
+                          )}
+                        </div>
+                        <button type="button" className={styles.secondaryBtn} onClick={savePaymentPin}>PIN-Einstellung speichern</button>
                       </div>
 
                       <div className={styles.detailBlock}>

@@ -660,3 +660,39 @@
 @media (max-width: 700px) {
   .kioskSetup { grid-template-columns: 1fr; }
 }
+
+
+.displayTypeGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0,1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+.displayTypeCard {
+  min-height: 88px;
+  padding: 13px;
+  border-radius: 12px;
+  border: 2px solid var(--gray-200);
+  background: var(--surface, white);
+  color: var(--gray-800);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+}
+.displayTypeCard strong { font-size: 16px; }
+.displayTypeCard span { color: var(--gray-600); font-size: 13px; line-height: 1.35; font-weight: 700; }
+.displayTypeActive { border-color: var(--green); background: var(--green-light); }
+.localDisplayUrl {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--surface, white);
+  border: 2px solid var(--gray-100);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.localDisplayUrl span { color: var(--gray-600); font-weight: 800; }
+.localDisplayUrl code { font-size: 16px; font-weight: 900; word-break: break-all; }
+@media(max-width:700px){ .displayTypeGrid{grid-template-columns:1fr;} }

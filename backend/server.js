@@ -1,4 +1,5 @@
 const express = require("express");
+const crypto = require("crypto");
 const Database = require("better-sqlite3");
 const cors = require("cors");
 const multer = require("multer");
@@ -169,6 +170,10 @@ ensureColumn("articles", "profile_id", "INTEGER NOT NULL DEFAULT 1");
 ensureColumn("transactions", "profile_id", "INTEGER NOT NULL DEFAULT 1");
 ensureColumn("sale_items", "profile_id", "INTEGER NOT NULL DEFAULT 1");
 ensureColumn("customers", "system", "INTEGER NOT NULL DEFAULT 0");
+ensureColumn("customers", "payment_pin_hash", "TEXT");
+ensureColumn("customers", "payment_pin_salt", "TEXT");
+ensureColumn("customers", "payment_pin_mode", "TEXT NOT NULL DEFAULT 'off'");
+ensureColumn("customers", "payment_pin_threshold", "REAL NOT NULL DEFAULT 0");
 
 try {
   db.exec(`
@@ -189,6 +194,26 @@ try {
 try {
   db.prepare("INSERT OR IGNORE INTO customers (id, name, balance, system) VALUES (-1, 'Barverkauf', 0, 1)").run();
 } catch (e) { console.log("Barverkauf-Systemkunde skip:", e.message); }
+
+function hashPaymentPin(pin, saltHex) {
+  const salt = saltHex ? Buffer.from(saltHex, "hex") : crypto.randomBytes(16);
+  const hash = crypto.scryptSync(String(pin), salt, 32).toString("hex");
+  return { salt: salt.toString("hex"), hash };
+}
+function pinRequiredForCustomer(customer, total) {
+  if (!customer?.payment_pin_hash || customer.payment_pin_mode === "off") return false;
+  if (customer.payment_pin_mode === "always") return true;
+  if (customer.payment_pin_mode === "threshold") return Number(total) >= Number(customer.payment_pin_threshold || 0);
+  return false;
+}
+function verifyPaymentPin(customer, pin) {
+  if (!customer?.payment_pin_hash || !customer?.payment_pin_salt) return false;
+  if (!/^\d{4,8}$/.test(String(pin || ""))) return false;
+  const candidate = hashPaymentPin(String(pin), customer.payment_pin_salt).hash;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(candidate, "hex"), Buffer.from(customer.payment_pin_hash, "hex"));
+  } catch { return false; }
+}
 
 function sanitizeProfileId(value) {
   const id = Number(value);
@@ -454,14 +479,17 @@ const VALID_PAY_MODES = ["nfc", "qr", "bleNfc", "manual", "cash"];
 const PAYMENT_SETTINGS_KEY = "payment_methods";
 const PRINTER_SETTINGS_KEY = "printer_settings";
 const RECEIPT_LAYOUT_SETTINGS_KEY = "receipt_layout_settings";
+const DRAWER_SETTINGS_KEY = "drawer_settings";
 
 const DEFAULT_PAYMENT_SETTINGS = {
   enabled: { nfc: true, qr: true, bleNfc: true, manual: true, cash: true },
   default: "nfc",
   cashBreakdownEnabled: false,
   customerDisplayEnabled: false,
+  customerDisplayType: "esp32",
 };
 const DEFAULT_PRINTER_SETTINGS = { enabled: false, address: "", name: "", autoConnect: true };
+const DEFAULT_DRAWER_SETTINGS = { enabled: false, openOnCash: true };
 const DEFAULT_RECEIPT_LAYOUT_SETTINGS = {
   shopName: "Noemi's Lädeli", subtitle: "Kassenzettel", footerText: "Danke fürs Einkaufen!",
   lineWidth: 32, previewFontSize: "large", itemSpacing: "compact", printMode: "image",
@@ -561,7 +589,11 @@ function getPaymentSettings(profileId) {
     default: def,
     cashBreakdownEnabled: parsed?.cashBreakdownEnabled === true,
     customerDisplayEnabled: parsed?.customerDisplayEnabled === true,
+    customerDisplayType: parsed?.customerDisplayType === "device" ? "device" : "esp32",
   };
+}
+function sanitizeDrawerSettings(input = {}) {
+  return { enabled: input.enabled === true, openOnCash: input.openOnCash !== false };
 }
 function sanitizePrinterSettings(input = {}) {
   return { enabled: input.enabled === true, address: String(input.address || "").slice(0, 120), name: String(input.name || "").slice(0, 120), autoConnect: input.autoConnect !== false };
@@ -603,8 +635,12 @@ app.put("/api/settings/payment", (req, res) => {
     default: def,
     cashBreakdownEnabled: req.body?.cashBreakdownEnabled === true,
     customerDisplayEnabled: req.body?.customerDisplayEnabled === true,
+    customerDisplayType: req.body?.customerDisplayType === "device" ? "device" : "esp32",
   }));
 });
+app.get("/api/settings/drawer", (req, res) => res.json(sanitizeDrawerSettings(getJsonSetting(getProfileId(req), DRAWER_SETTINGS_KEY, DEFAULT_DRAWER_SETTINGS))));
+app.put("/api/settings/drawer", (req, res) => res.json(saveJsonSetting(getProfileId(req), DRAWER_SETTINGS_KEY, sanitizeDrawerSettings(req.body || {}))));
+
 app.get("/api/settings/printer", (req, res) => res.json(sanitizePrinterSettings(getJsonSetting(getProfileId(req), PRINTER_SETTINGS_KEY, DEFAULT_PRINTER_SETTINGS))));
 app.put("/api/settings/printer", (req, res) => res.json(saveJsonSetting(getProfileId(req), PRINTER_SETTINGS_KEY, sanitizePrinterSettings(req.body || {}))));
 app.get("/api/settings/receipt-layout", (req, res) => res.json(sanitizeReceiptLayoutSettings(getJsonSetting(getProfileId(req), RECEIPT_LAYOUT_SETTINGS_KEY, DEFAULT_RECEIPT_LAYOUT_SETTINGS))));
@@ -671,6 +707,8 @@ function ensureCustomerProfile(customerId, profileId, { active = 0, balance = 0 
 function getCustomerWithTokens(customerId, profileId = 1) {
   const customer = db.prepare(`
     SELECT c.id, c.name, c.created_at,
+           c.payment_pin_mode, c.payment_pin_threshold,
+           CASE WHEN c.payment_pin_hash IS NOT NULL AND c.payment_pin_hash <> '' THEN 1 ELSE 0 END AS payment_pin_configured,
            COALESCE(cp.balance, 0) AS balance,
            COALESCE(cp.active, 0) AS profile_active
     FROM customers c
@@ -679,7 +717,14 @@ function getCustomerWithTokens(customerId, profileId = 1) {
   `).get(profileId, customerId);
   if (!customer) return null;
   const tokens = db.prepare("SELECT * FROM payment_tokens WHERE customer_id = ? ORDER BY created_at, id").all(customerId);
-  return { ...customer, profile_active: Boolean(customer.profile_active), tokens };
+  return {
+    ...customer,
+    profile_active: Boolean(customer.profile_active),
+    payment_pin_configured: Boolean(customer.payment_pin_configured),
+    payment_pin_mode: ["always","threshold"].includes(customer.payment_pin_mode) ? customer.payment_pin_mode : "off",
+    payment_pin_threshold: money(customer.payment_pin_threshold || 0),
+    tokens,
+  };
 }
 function findCustomerByToken(value, profileId) {
   const exact = db.prepare("SELECT * FROM payment_tokens WHERE value = ? AND active = 1").get(value);
@@ -734,6 +779,32 @@ app.put("/api/customers/:id", (req, res) => {
   db.prepare("UPDATE customers SET name = ? WHERE id = ?").run(req.body?.name ?? customer.name, req.params.id);
   res.json(getCustomerWithTokens(req.params.id, profileId));
 });
+app.put("/api/customers/:id/payment-pin", (req, res) => {
+  const profileId = getProfileId(req);
+  const customer = db.prepare("SELECT * FROM customers WHERE id = ? AND COALESCE(system,0)=0").get(req.params.id);
+  if (!customer) return res.status(404).json({ error: "Kunde nicht gefunden" });
+  const mode = ["off","always","threshold"].includes(req.body?.mode) ? req.body.mode : "off";
+  const threshold = mode === "threshold" ? nonNegativeNumber(req.body?.threshold) : 0;
+  if (mode === "threshold" && threshold === null) return res.status(400).json({ error: "Ungültiger PIN-Grenzbetrag" });
+
+  if (mode === "off") {
+    db.prepare("UPDATE customers SET payment_pin_mode='off', payment_pin_hash=NULL, payment_pin_salt=NULL, payment_pin_threshold=0 WHERE id=?").run(customer.id);
+  } else {
+    const pin = String(req.body?.pin || "");
+    if (pin && !/^\d{4,8}$/.test(pin)) return res.status(400).json({ error: "PIN muss aus 4 bis 8 Ziffern bestehen" });
+    if (!pin && !customer.payment_pin_hash) return res.status(400).json({ error: "Bitte einen PIN festlegen" });
+    if (pin) {
+      const secured = hashPaymentPin(pin);
+      db.prepare("UPDATE customers SET payment_pin_mode=?, payment_pin_threshold=?, payment_pin_hash=?, payment_pin_salt=? WHERE id=?")
+        .run(mode, money(threshold || 0), secured.hash, secured.salt, customer.id);
+    } else {
+      db.prepare("UPDATE customers SET payment_pin_mode=?, payment_pin_threshold=? WHERE id=?")
+        .run(mode, money(threshold || 0), customer.id);
+    }
+  }
+  res.json(getCustomerWithTokens(customer.id, profileId));
+});
+
 app.put("/api/customers/:id/profile", (req, res) => {
   const profileId = getProfileId(req);
   const customer = db.prepare("SELECT id FROM customers WHERE id = ?").get(req.params.id);
@@ -845,6 +916,16 @@ app.post("/api/checkout", (req, res) => {
   const total = money(rawTotal);
   const customer = lookupCustomer(card_uid, profileId);
   if (!customer) return res.status(404).json({ error: "Kunde ist in diesem Profil nicht aktiv oder wurde nicht gefunden" });
+  const rawPinCustomer = db.prepare("SELECT * FROM customers WHERE id = ?").get(customer.id);
+  if (pinRequiredForCustomer(rawPinCustomer, total) && !verifyPaymentPin(rawPinCustomer, req.body?.payment_pin)) {
+    return res.status(428).json({
+      error: req.body?.payment_pin ? "PIN falsch" : "PIN erforderlich",
+      pin_required: true,
+      pin_invalid: Boolean(req.body?.payment_pin),
+      customer_name: customer.name,
+      customer_id: customer.id,
+    });
+  }
   try {
     const newBalance = db.transaction(() => {
       const fresh = db.prepare("SELECT balance, active FROM customer_profiles WHERE customer_id = ? AND profile_id = ?").get(customer.id, profileId);
@@ -867,6 +948,18 @@ app.post("/api/checkout", (req, res) => {
   }
 });
 
+
+// ── Kassenschublade (flüchtiger OPEN-Befehl) ────────────────────────────────
+let drawerCommandVersion = 0;
+app.post("/api/drawer/open", (req, res) => {
+  const settings = sanitizeDrawerSettings(getJsonSetting(getProfileId(req), DRAWER_SETTINGS_KEY, DEFAULT_DRAWER_SETTINGS));
+  if (!settings.enabled) return res.status(409).json({ error: "Kassenschublade ist deaktiviert" });
+  drawerCommandVersion += 1;
+  res.json({ success: true, version: drawerCommandVersion, command: "OPEN" });
+});
+app.get("/api/drawer/command", (req, res) => {
+  res.json({ version: drawerCommandVersion, command: drawerCommandVersion > 0 ? "OPEN" : "" });
+});
 
 // ── Barzahlung ────────────────────────────────────────────────────────────────
 app.post("/api/checkout/cash", (req, res) => {
@@ -895,38 +988,66 @@ app.post("/api/checkout/cash", (req, res) => {
 // ── Kundenanzeige (flüchtiger Live-Zustand pro Profil) ────────────────────────
 // Der aktuelle Warenkorb muss keinen Server-Neustart überleben; Verkaufsdaten
 // werden weiterhin ausschliesslich über die normalen Checkout-Endpunkte gespeichert.
-const customerDisplayState = new Map();
+let customerDisplayState = null;
 function cleanDisplayPayload(input = {}) {
   const items = Array.isArray(input.items) ? input.items.slice(0, 100).map((item) => ({
     name: String(item?.name || "Artikel").slice(0, 120),
     qty: Math.max(1, Math.min(999, Number(item?.qty) || 1)),
     price: money(Number(item?.price) || 0),
   })) : [];
+  const theme = input?.profile?.theme && typeof input.profile.theme === "object" ? input.profile.theme : {};
   return {
-    status: ["shop", "payment", "success", "error"].includes(input.status) ? input.status : "shop",
+    profile: {
+      name: String(input?.profile?.name || "KinderKasse").slice(0, 80),
+      theme: {
+        primaryColor: String(theme.primaryColor || "#1a7a3c").slice(0, 20),
+        pageBackground: String(theme.pageBackground || "#f3f4f6").slice(0, 20),
+        registerBackground: String(theme.registerBackground || "#f3f4f6").slice(0, 20),
+        bannerBackground: String(theme.bannerBackground || "#1a7a3c").slice(0, 20),
+        bannerTextColor: String(theme.bannerTextColor || "#ffffff").slice(0, 20),
+        bannerText: String(theme.bannerText || "Willkommen!").slice(0, 100),
+      },
+    },
+    status: ["shop", "payment", "pin", "success", "error"].includes(input.status) ? input.status : "shop",
     paymentMode: String(input.paymentMode || "").slice(0, 30),
     total: money(Number(input.total) || 0),
     tendered: Number.isFinite(Number(input.tendered)) ? money(Number(input.tendered)) : null,
     change: Number.isFinite(Number(input.change)) ? money(Number(input.change)) : null,
     message: String(input.message || "").slice(0, 160),
+    pinRequest: input?.pinRequest?.required ? {
+      required: true,
+      customerName: String(input.pinRequest.customerName || "").slice(0, 80),
+      invalid: input.pinRequest.invalid === true,
+    } : null,
     items,
     updatedAt: new Date().toISOString(),
   };
 }
 app.get("/api/customer-display", (req, res) => {
-  const profileId = getProfileId(req);
-  const settings = getPaymentSettings(profileId);
-  if (!settings.customerDisplayEnabled) return res.json({ ...cleanDisplayPayload({}), disabled: true });
-  res.json({ ...(customerDisplayState.get(profileId) || cleanDisplayPayload({})), disabled: false });
+  res.json(customerDisplayState || cleanDisplayPayload({}));
 });
 app.put("/api/customer-display", (req, res) => {
-  const profileId = getProfileId(req);
-  const settings = getPaymentSettings(profileId);
+  // Absichtlich global: Bei einer einzelnen Kasse soll das Display immer exakt
+  // den gerade aktiven Kassenstand zeigen, ohne selbst eine Profil-ID zu kennen.
+  const settings = getPaymentSettings(getProfileId(req));
   if (!settings.customerDisplayEnabled) return res.status(409).json({ error: "Kundenanzeige ist für dieses Profil deaktiviert" });
-  const state = cleanDisplayPayload(req.body || {});
-  customerDisplayState.set(profileId, state);
-  res.json(state);
+  customerDisplayState = cleanDisplayPayload(req.body || {});
+  res.json(customerDisplayState);
 });
+let customerDisplayInput = null;
+app.post("/api/customer-display/input", (req, res) => {
+  const pin = String(req.body?.pin || "");
+  const action = String(req.body?.action || "");
+  if (pin && !/^\d{1,8}$/.test(pin)) return res.status(400).json({ error: "Ungültige PIN-Eingabe" });
+  customerDisplayInput = { pin, action, createdAt: Date.now() };
+  res.json({ success: true });
+});
+app.get("/api/customer-display/input", (req, res) => {
+  const value = customerDisplayInput;
+  customerDisplayInput = null;
+  res.json(value || {});
+});
+
 
 // ── Transactions / Statistik (profilabhängig) ────────────────────────────────
 app.get("/api/transactions", (req, res) => {
@@ -980,7 +1101,7 @@ app.get("/api/admin/kiosk-reset-version", (req, res) => {
 
 app.get("/api/status", (req, res) => {
   const profile = profileToJson(db.prepare("SELECT * FROM profiles WHERE id = ?").get(getProfileId(req)));
-  res.json({ app: "KinderKasse", version: "2.3.0", profile });
+  res.json({ app: "KinderKasse", version: "2.7.0", profile });
 });
 
 app.listen(PORT, () => console.log(`Kasse backend running on :${PORT}`));

@@ -4,6 +4,7 @@
 
 import { Capacitor } from "@capacitor/core";
 import { BleClient, ScanMode } from "@capacitor-community/bluetooth-le";
+import { acquireBleScan } from "./bleScanLock";
 
 const SERVICE_UUID = "7a0f0001-1b55-4e2a-9c2e-9a6b9f3a2c10";
 const UID_CHAR_UUID = "7a0f0002-1b55-4e2a-9c2e-9a6b9f3a2c10";
@@ -101,9 +102,11 @@ function isKasseNfcScanResult(result) {
 async function scanNativeDevice(onStatus, timeoutMs = 12000) {
   await ensureNativeBle(onStatus);
   onStatus?.("Suche NFC-Box …");
+  const releaseScan = await acquireBleScan("nfc");
 
   let finished = false;
-  return await new Promise(async (resolve, reject) => {
+  try {
+    return await new Promise(async (resolve, reject) => {
     const timer = window.setTimeout(async () => {
       if (finished) return;
       finished = true;
@@ -139,6 +142,9 @@ async function scanNativeDevice(onStatus, timeoutMs = 12000) {
       reject(err);
     }
   });
+  } finally {
+    releaseScan();
+  }
 }
 
 async function openNativeConnection(deviceOrId, onUid, onStatus, onDisconnected) {

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import styles from "./Kasse.module.css";
 import { useCart } from "../CartContext";
 import { useNfc } from "../NfcContext";
-import { apiFetch, assetUrl, loadAssetUrl } from "../lib/api";
+import { apiFetch, assetUrl, loadAssetUrl, getDataMode } from "../lib/api";
 import { isCameraSupported, openCameraStream, startQrScanner, waitForVideoRef } from "../lib/qrScanner";
 import {
   buildReceiptText,
@@ -13,6 +13,9 @@ import {
 } from "../lib/escposPrinter";
 import { loadPrinterSettingsFromApi } from "../lib/printerSettingsSync";
 import { useProfile } from "../ProfileContext";
+import { useCustomerDisplayBle } from "../CustomerDisplayBleContext";
+import { useDrawer } from "../DrawerContext";
+import { consumeLocalDisplayInput, publishLocalDisplayState, startLocalDisplayServer } from "../lib/localDisplayServer";
 
 const API = "/api";
 const LETTERS = ["ALL", ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("")];
@@ -71,19 +74,27 @@ export default function Kasse() {
   const { cart, addToCart, removeFromCart, clearCart } = useCart();
   const { activeProfile } = useProfile(); // Warenkorb lebt im globalen Context, überlebt Seitenwechsel
   const nfc = useNfc(); // geteilte, app-weite NFC-Box-Verbindung
+  const customerDisplayBle = useCustomerDisplayBle();
+  const drawer = useDrawer();
   const [allArticles, setAllArticles] = useState([]); // ungefiltert, für die Buchstabenleiste
   const [articles, setArticles] = useState([]); // gefiltert für die Anzeige
   const [letter, setLetter] = useState("ALL");
   const [page, setPage] = useState(0);
-  const [phase, setPhase] = useState("shop"); // shop | payment | success | error
+  const [phase, setPhase] = useState("shop"); // shop | payment | pin | success | error
   const [payMode, setPayMode] = useState("nfc"); // "nfc" | "qr" | "bleNfc" | "manual" | "cash"
   // Welche Methoden sind freigeschaltet (aus den Einstellungen, gemeinsam für alle Geräte)
   const [enabledModes, setEnabledModes] = useState({ nfc: true, qr: true, bleNfc: true, manual: true, cash: true });
   const [cashBreakdownEnabled, setCashBreakdownEnabled] = useState(false);
+  const [drawerEnabled, setDrawerEnabled] = useState(false);
+  const [drawerOpenOnCash, setDrawerOpenOnCash] = useState(true);
   const [customerDisplayEnabled, setCustomerDisplayEnabled] = useState(false);
+  const [customerDisplayType, setCustomerDisplayType] = useState("esp32");
   const [cashTendered, setCashTendered] = useState("");
   const [displaySale, setDisplaySale] = useState(null);
   const [manualName, setManualName] = useState(""); // Kundenname per Tastatur eintippen
+  const [pendingPaymentIdentifier, setPendingPaymentIdentifier] = useState("");
+  const [pinCustomerName, setPinCustomerName] = useState("");
+  const [pinInvalid, setPinInvalid] = useState(false);
   const [nfcStatus, setNfcStatus] = useState("");
   const [cardInfo, setCardInfo] = useState(null);
   const [errorMsg, setErrorMsg] = useState("");
@@ -126,6 +137,18 @@ export default function Kasse() {
   useEffect(() => { fetchAllArticles(); }, [fetchAllArticles]);
   useEffect(() => { fetchArticles(); }, [fetchArticles]);
 
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await apiFetch("/api/settings/drawer");
+        if (!res.ok) return;
+        const data = await res.json();
+        setDrawerEnabled(data.enabled === true);
+        setDrawerOpenOnCash(data.openOnCash !== false);
+      } catch {}
+    })();
+  }, [activeProfile?.id]);
+
   // Zahlungsmethoden-Einstellungen laden (gemeinsam für alle Geräte).
   // Nur aktive Methoden werden in der Kasse angezeigt; die Standard-Methode
   // wird vorausgewählt, damit man auf dem jeweiligen Gerät nicht jedes Mal
@@ -139,6 +162,7 @@ export default function Kasse() {
         setEnabledModes(data.enabled);
         setCashBreakdownEnabled(data.cashBreakdownEnabled === true);
         setCustomerDisplayEnabled(data.customerDisplayEnabled === true);
+        setCustomerDisplayType(data.customerDisplayType === "device" ? "device" : "esp32");
         if (data.enabled[data.default]) {
           setPayMode(data.default);
         } else {
@@ -189,34 +213,92 @@ export default function Kasse() {
   // verrauschter Float-Wert (z.B. 0.30000000000000004) ans Backend geschickt wird.
   const total = Math.round(cart.reduce((s, i) => s + i.price * i.qty, 0) * 100) / 100;
 
-  // Kundenanzeige: Zustand serverseitig pro Profil veröffentlichen.
-  // Fehler sind absichtlich still, damit ein ausgeschaltetes/zweites Tablet
-  // den eigentlichen Kassenbetrieb niemals blockiert.
+  // Kundenanzeige: Im Servermodus an Docker senden, im lokalen APK-Modus
+  // direkt per BLE an die Display-Box. Der Kassenbetrieb wird bei einem
+  // Displayfehler niemals blockiert.
   useEffect(() => {
     if (!customerDisplayEnabled) return;
+    const payload = {
+      profile: {
+        name: activeProfile?.name || "KinderKasse",
+        theme: activeProfile?.theme || {},
+      },
+      status: phase,
+      paymentMode: phase === "success" && displaySale ? displaySale.paymentMode : payMode,
+      total: phase === "success" && displaySale ? displaySale.total : total,
+      tendered: phase === "success" && displaySale
+        ? displaySale.tendered
+        : payMode === "cash" && cashTendered !== "" ? Number(cashTendered) : null,
+      change: phase === "success" && displaySale
+        ? displaySale.change
+        : payMode === "cash" && cashTendered !== "" ? Math.max(0, Math.round((Number(cashTendered) - total) * 100) / 100) : null,
+      message: phase === "success" ? "Vielen Dank!" : phase === "error" ? errorMsg : phase === "pin" && pinInvalid ? "PIN falsch – bitte erneut eingeben" : "",
+      pinRequest: phase === "pin" ? {
+        required: true,
+        customerName: pinCustomerName,
+        invalid: pinInvalid,
+      } : null,
+      items: phase === "success" && displaySale
+        ? displaySale.items
+        : cart.map((item) => ({ name: item.name, qty: item.qty, price: item.price })),
+    };
+
     const timer = setTimeout(() => {
+      if (getDataMode() === "local") {
+        if (customerDisplayType === "device") {
+          startLocalDisplayServer()
+            .then(() => publishLocalDisplayState(payload))
+            .catch(() => {});
+        } else {
+          customerDisplayBle.send(payload).catch(() => {});
+        }
+        return;
+      }
       apiFetch("/api/customer-display", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          status: phase,
-          paymentMode: phase === "success" && displaySale ? displaySale.paymentMode : payMode,
-          total: phase === "success" && displaySale ? displaySale.total : total,
-          tendered: phase === "success" && displaySale
-            ? displaySale.tendered
-            : payMode === "cash" && cashTendered !== "" ? Number(cashTendered) : null,
-          change: phase === "success" && displaySale
-            ? displaySale.change
-            : payMode === "cash" && cashTendered !== "" ? Math.max(0, Math.round((Number(cashTendered) - total) * 100) / 100) : null,
-          message: phase === "success" ? "Vielen Dank!" : phase === "error" ? errorMsg : "",
-          items: phase === "success" && displaySale
-            ? displaySale.items
-            : cart.map((item) => ({ name: item.name, qty: item.qty, price: item.price })),
-        }),
+        body: JSON.stringify(payload),
       }).catch(() => {});
     }, 120);
     return () => clearTimeout(timer);
-  }, [cart, total, phase, payMode, cashTendered, customerDisplayEnabled, errorMsg, displaySale]);
+  }, [cart, total, phase, payMode, cashTendered, customerDisplayEnabled, customerDisplayType, errorMsg, displaySale, activeProfile?.id, customerDisplayBle, pinCustomerName, pinInvalid]);
+
+  // Kundenterminal-Rückkanal: PIN kommt bei Docker über die API und bei einem
+  // lokalen Tablet über den nativen Displayserver. BLE-PINs werden im
+  // CustomerDisplayBleContext als Eingabeereignis bereitgestellt.
+  useEffect(() => {
+    if (phase !== "pin" || !pendingPaymentIdentifier) return undefined;
+    let cancelled = false;
+    let timer;
+
+    const consume = async () => {
+      try {
+        let input = null;
+        if (getDataMode() === "server") {
+          const res = await apiFetch("/api/customer-display/input");
+          if (res.ok) input = await res.json();
+        } else if (customerDisplayType === "device") {
+          input = await consumeLocalDisplayInput();
+        } else {
+          input = customerDisplayBle.consumeInput?.() || null;
+        }
+
+        if (cancelled || !input) return;
+        if (input.action === "cancel") {
+          resetShop();
+          return;
+        }
+        if (/^\d{4,8}$/.test(String(input.pin || ""))) {
+          paymentDoneRef.current = true;
+          await processPayment(pendingPaymentIdentifier, String(input.pin));
+        }
+      } catch {}
+    };
+
+    consume();
+    timer = window.setInterval(consume, 350);
+    return () => { cancelled = true; if (timer) window.clearInterval(timer); };
+  }, [phase, pendingPaymentIdentifier, customerDisplayType, customerDisplayBle]);
 
   // ── Swipe-Navigation zwischen Seiten ──
   // Reine Touch-Events statt einer externen Library, da nur ein simpler
@@ -474,6 +556,13 @@ export default function Kasse() {
       });
       setCardInfo({ ...data, cash: true });
       setPhase("success");
+      if (drawerEnabled && drawerOpenOnCash) {
+        if (getDataMode() === "local") {
+          drawer.open().catch(() => {});
+        } else {
+          apiFetch("/api/drawer/open", { method: "POST" }).catch(() => {});
+        }
+      }
       clearCart();
     } catch {
       paymentDoneRef.current = false;
@@ -482,9 +571,10 @@ export default function Kasse() {
     }
   };
 
-  // try/catch für Netzwerkfehler bei der Zahlung
-  const processPayment = async (identifier) => {
-    setNfcStatus("Verarbeite Zahlung …");
+  // Karte/QR/Kunden-ID verarbeiten. Wenn der Kunde einen Zahlungs-PIN
+  // benötigt, antwortet das Backend zuerst mit HTTP 428 und es wird noch nichts abgebucht.
+  const processPayment = async (identifier, paymentPin = "") => {
+    setNfcStatus(paymentPin ? "Prüfe PIN …" : "Verarbeite Zahlung …");
     stopQr();
     stopNfc();
     stopBleNfc();
@@ -495,6 +585,7 @@ export default function Kasse() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           card_uid: identifier,
+          payment_pin: paymentPin || undefined,
           total,
           items,
           line_items: cart.map((item) => ({
@@ -506,6 +597,14 @@ export default function Kasse() {
         }),
       });
       const data = await res.json();
+      if (res.status === 428 && data.pin_required) {
+        paymentDoneRef.current = false;
+        setPendingPaymentIdentifier(identifier);
+        setPinCustomerName(data.customer_name || "");
+        setPinInvalid(Boolean(data.pin_invalid));
+        setPhase("pin");
+        return;
+      }
       if (res.ok) {
         const receipt = buildReceiptText({
           items: cart.map((item) => ({ name: item.name, qty: item.qty, price: item.price })),
@@ -526,6 +625,9 @@ export default function Kasse() {
           change: null,
         });
         setCardInfo(data);
+        setPendingPaymentIdentifier("");
+        setPinCustomerName("");
+        setPinInvalid(false);
         setPhase("success");
         clearCart(); // erst hier wird der Warenkorb geleert — exakt wie gewünscht
       } else {
@@ -581,6 +683,9 @@ export default function Kasse() {
     setReceiptStatus("");
     setManualName("");
     setCashTendered("");
+    setPendingPaymentIdentifier("");
+    setPinCustomerName("");
+    setPinInvalid(false);
     setDisplaySale(null);
   };
 
@@ -730,7 +835,7 @@ export default function Kasse() {
       </div>
 
       {/* Overlay */}
-      {(phase === "payment" || phase === "success" || phase === "error") && (
+      {(phase === "payment" || phase === "pin" || phase === "success" || phase === "error") && (
         <div className={styles.overlay}>
           <div className={styles.modal}>
             {phase === "payment" && (
@@ -811,6 +916,15 @@ export default function Kasse() {
                   </button>
                 )}
                 <button className={styles.cancelBtn} onClick={resetShop}>Abbrechen</button>
+              </>
+            )}
+            {phase === "pin" && (
+              <>
+                <div className={styles.nfcIcon}>🔐</div>
+                <h2>PIN am Kundendisplay eingeben</h2>
+                {pinCustomerName && <p><strong>{pinCustomerName}</strong></p>}
+                <p className={styles.nfcStatus}>{pinInvalid ? "PIN falsch – bitte erneut eingeben." : "Warte auf PIN …"}</p>
+                <button className={styles.cancelBtn} onClick={resetShop}>Zahlung abbrechen</button>
               </>
             )}
             {phase === "success" && (

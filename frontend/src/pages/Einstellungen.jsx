@@ -22,6 +22,9 @@ import {
 } from "../lib/themePresets";
 import { useProfile } from "../ProfileContext";
 import { useCart } from "../CartContext";
+import { useCustomerDisplayBle } from "../CustomerDisplayBleContext";
+import { useDrawer } from "../DrawerContext";
+import { getLocalDisplayServerInfo, startLocalDisplayServer } from "../lib/localDisplayServer";
 import {
   configureKiosk,
   getKioskConfig,
@@ -59,10 +62,16 @@ function readImageFile(file) {
 export default function Einstellungen() {
   const { profiles, activeProfile, refreshProfiles, switchProfile } = useProfile();
   const { cart, clearCart } = useCart();
+  const displayBle = useCustomerDisplayBle();
+  const drawer = useDrawer();
   const [enabled, setEnabled] = useState({ nfc: true, qr: true, bleNfc: true, manual: true, cash: true });
   const [defaultMode, setDefaultMode] = useState("nfc");
   const [cashBreakdownEnabled, setCashBreakdownEnabled] = useState(false);
   const [customerDisplayEnabled, setCustomerDisplayEnabled] = useState(false);
+  const [customerDisplayType, setCustomerDisplayType] = useState("esp32");
+  const [localDisplayServerUrl, setLocalDisplayServerUrl] = useState("");
+  const [drawerEnabled, setDrawerEnabled] = useState(false);
+  const [drawerOpenOnCash, setDrawerOpenOnCash] = useState(true);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState({ text: "", type: "" });
   const [serverUrl, setServerUrl] = useState(getApiBase());
@@ -97,6 +106,16 @@ export default function Einstellungen() {
     setTheme((current) => normalizeTheme({ ...current, ...patch }));
   };
 
+  const loadDrawerSettings = async () => {
+    try {
+      const res = await apiFetch("/api/settings/drawer");
+      if (!res.ok) return;
+      const data = await res.json();
+      setDrawerEnabled(data.enabled === true);
+      setDrawerOpenOnCash(data.openOnCash !== false);
+    } catch {}
+  };
+
   const loadPaymentSettings = async () => {
     setLoading(true);
     try {
@@ -107,6 +126,7 @@ export default function Einstellungen() {
       setDefaultMode(data.default);
       setCashBreakdownEnabled(data.cashBreakdownEnabled === true);
       setCustomerDisplayEnabled(data.customerDisplayEnabled === true);
+      setCustomerDisplayType(data.customerDisplayType === "device" ? "device" : "esp32");
       try { localStorage.setItem("kasseBleNfcEnabled", data.enabled?.bleNfc ? "1" : "0"); } catch {}
       window.dispatchEvent(new CustomEvent("kasse:payment-settings-updated", { detail: data }));
     } catch {
@@ -121,6 +141,7 @@ export default function Einstellungen() {
       setProfileName(activeProfile.name);
       setTheme(normalizeTheme({ ...DEFAULT_THEME, ...(activeProfile.theme || {}) }));
       loadPaymentSettings();
+      loadDrawerSettings();
     }
   }, [activeProfile?.id]);
 
@@ -243,13 +264,30 @@ export default function Einstellungen() {
 
   const activeCount = Object.values(enabled).filter(Boolean).length;
 
+  const saveDrawerSettings = async () => {
+    try {
+      const res = await apiFetch("/api/settings/drawer", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: drawerEnabled, openOnCash: drawerOpenOnCash }),
+      });
+      const data = await res.json();
+      if (!res.ok) return showMsg(data.error || "Kassenschublade konnte nicht gespeichert werden", "err");
+      setDrawerEnabled(data.enabled === true);
+      setDrawerOpenOnCash(data.openOnCash !== false);
+      showMsg("Kassenschublade gespeichert ✓");
+    } catch {
+      showMsg("Kassenschublade konnte nicht gespeichert werden", "err");
+    }
+  };
+
   const savePayments = async () => {
     if (!activeCount || !enabled[defaultMode]) return showMsg("Mindestens eine aktive Methode mit aktivem Standard ist nötig", "err");
     try {
       const res = await apiFetch("/api/settings/payment", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled, default: defaultMode, cashBreakdownEnabled, customerDisplayEnabled }),
+        body: JSON.stringify({ enabled, default: defaultMode, cashBreakdownEnabled, customerDisplayEnabled, customerDisplayType }),
       });
       const data = await res.json();
       if (!res.ok) return showMsg(data.error || "Speichern fehlgeschlagen", "err");
@@ -257,6 +295,7 @@ export default function Einstellungen() {
       setDefaultMode(data.default);
       setCashBreakdownEnabled(data.cashBreakdownEnabled === true);
       setCustomerDisplayEnabled(data.customerDisplayEnabled === true);
+      setCustomerDisplayType(data.customerDisplayType === "device" ? "device" : "esp32");
       window.dispatchEvent(new CustomEvent("kasse:payment-settings-updated", { detail: data }));
       showMsg("Zahlungsmethoden gespeichert ✓");
     } catch {
@@ -313,6 +352,24 @@ export default function Einstellungen() {
     } catch (e) {
       showMsg(e.message || "PIN konnte nicht geändert werden", "err");
     }
+  };
+
+  const prepareLocalDeviceDisplay = async () => {
+    try {
+      const info = await startLocalDisplayServer();
+      setLocalDisplayServerUrl(info?.url || "");
+      if (info?.url) showMsg("Lokaler Display-Server gestartet ✓");
+      else showMsg("Display-Server gestartet. Bitte WLAN/Hotspot-Verbindung prüfen.", "err");
+    } catch {
+      showMsg("Lokaler Display-Server konnte nicht gestartet werden", "err");
+    }
+  };
+
+  const refreshLocalDisplayServerInfo = async () => {
+    try {
+      const info = await getLocalDisplayServerInfo();
+      setLocalDisplayServerUrl(info?.url || "");
+    } catch {}
   };
 
   const changeDataMode = async (mode) => {
@@ -628,20 +685,118 @@ export default function Einstellungen() {
         </div>
 
         <div className={styles.serverBox}>
+          <h2>🗄️ Kassenschublade</h2>
+          <p>Optional. Wenn deaktiviert, verhält sich KinderKasse exakt wie bisher.</p>
+          <div className={styles.methodRow}>
+            <div className={styles.methodIcon}>🗄️</div>
+            <div className={styles.methodInfo}>
+              <div className={styles.methodLabel}>Kassenschublade aktivieren</div>
+              <div className={styles.methodDesc}>ESP32-C3 als <code>KasseDrawer</code>. Servermodus über WLAN/Cloudflare, lokaler APK-Modus über BLE.</div>
+            </div>
+            <button className={`${styles.toggle} ${drawerEnabled ? styles.toggleOn : styles.toggleOff}`} onClick={() => setDrawerEnabled((v) => !v)}>
+              <span className={styles.toggleKnob} />
+            </button>
+          </div>
+          <div className={styles.methodRow}>
+            <div className={styles.methodIcon}>💵</div>
+            <div className={styles.methodInfo}>
+              <div className={styles.methodLabel}>Nach erfolgreicher Barzahlung öffnen</div>
+              <div className={styles.methodDesc}>Der Servo öffnet erst, nachdem der Verkauf gespeichert wurde.</div>
+            </div>
+            <button className={`${styles.toggle} ${drawerOpenOnCash ? styles.toggleOn : styles.toggleOff}`} onClick={() => setDrawerOpenOnCash((v) => !v)}>
+              <span className={styles.toggleKnob} />
+            </button>
+          </div>
+          {dataMode === "local" && drawer.supported && drawerEnabled && (
+            <div className={styles.serverActions}>
+              <button onClick={() => drawer.connect(true)} disabled={drawer.status === "connecting"}>
+                {drawer.status === "connected" ? "✅ Kassenschublade verbunden" : drawer.status === "connecting" ? "Suche KasseDrawer …" : "🗄️ Kassenschublade per BLE verbinden"}
+              </button>
+              {drawer.status === "connected" && <button className={styles.secondaryBtn} onClick={() => drawer.open()}>Test öffnen</button>}
+            </div>
+          )}
+          <div className={styles.serverActions}>
+            <button onClick={saveDrawerSettings}>Kassenschublade speichern</button>
+          </div>
+        </div>
+
+        <div className={styles.serverBox}>
           <h2>🖥️ Kundenanzeige</h2>
-          <p>Überträgt den aktuellen Warenkorb und Zahlungsstatus an ein zweites Tablet über den Docker-Server.</p>
+          <p>Wähle, ob ein kompaktes ESP32-Display oder ein zweites Handy/Tablet als Kundenanzeige verwendet wird.</p>
+
+          <div className={styles.displayTypeGrid}>
+            <button
+              className={`${styles.displayTypeCard} ${customerDisplayType === "esp32" ? styles.displayTypeActive : ""}`}
+              onClick={() => setCustomerDisplayType("esp32")}
+            >
+              <strong>📟 ESP32 Display-Box</strong>
+              <span>Servermodus: WLAN/Cloudflare · Lokaler APK-Modus: BLE</span>
+            </button>
+            <button
+              className={`${styles.displayTypeCard} ${customerDisplayType === "device" ? styles.displayTypeActive : ""}`}
+              onClick={() => setCustomerDisplayType("device")}
+            >
+              <strong>📱 Zweites Gerät</strong>
+              <span>Servermodus: Docker-Webanzeige · Lokaler APK-Modus: LAN/Hotspot</span>
+            </button>
+          </div>
+
           <div className={styles.methodRow}>
             <div className={styles.methodIcon}>📺</div>
             <div className={styles.methodInfo}>
               <div className={styles.methodLabel}>Kundenanzeige aktivieren</div>
-              <div className={styles.methodDesc}>Das zweite Tablet öffnet die Ansicht <strong>#/kundendisplay</strong> und verwendet das aktuell gewählte Profil.</div>
+              <div className={styles.methodDesc}>Überträgt Warenkorb, Total, Zahlungsart, Rückgeld und das aktive Profil.</div>
             </div>
             <button className={`${styles.toggle} ${customerDisplayEnabled ? styles.toggleOn : styles.toggleOff}`} onClick={() => setCustomerDisplayEnabled((v) => !v)}>
               <span className={styles.toggleKnob} />
             </button>
           </div>
+
+          {customerDisplayType === "esp32" && (
+            <>
+              <p><strong>ESP32:</strong> Im Docker-/Servermodus liest die Box automatisch <code>/api/customer-display</code> per WLAN. Im lokalen APK-Modus wird sie per BLE als <code>KasseDisplay</code> verbunden.</p>
+              {displayBle.supported && (
+                <div className={styles.serverActions}>
+                  <button onClick={() => displayBle.connect(true)} disabled={displayBle.status === "connecting"}>
+                    {displayBle.status === "connected" ? "✅ BLE-Display verbunden" : displayBle.status === "connecting" ? "Suche BLE-Display …" : "📟 ESP32 per BLE verbinden"}
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+
+          {customerDisplayType === "device" && (
+            <>
+              {dataMode === "server" ? (
+                <>
+                  <p><strong>Zweites Gerät über Docker:</strong> Dort dieselbe KinderKasse öffnen, Server verbinden und <code>#/kundendisplay</code> aufrufen.</p>
+                  <div className={styles.serverActions}>
+                    <button className={styles.secondaryBtn} onClick={() => window.open(`${window.location.origin}${window.location.pathname}#/kundendisplay`, "_blank")}>Kundenanzeige auf diesem Gerät öffnen</button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p><strong>Zweites Gerät ohne Docker:</strong> Beide Geräte müssen im selben WLAN sein. Alternativ kann das Kassen-Tablet einen Hotspot bereitstellen. Die Kassen-APK stellt dann einen kleinen lokalen Display-Server bereit.</p>
+                  <div className={styles.serverActions}>
+                    <button onClick={prepareLocalDeviceDisplay}>Lokalen Display-Server starten</button>
+                    <button className={styles.secondaryBtn} onClick={refreshLocalDisplayServerInfo}>Adresse aktualisieren</button>
+                  </div>
+                  {localDisplayServerUrl && (
+                    <div className={styles.localDisplayUrl}>
+                      <span>Diese Adresse am zweiten Gerät verwenden:</span>
+                      <code>{localDisplayServerUrl}</code>
+                      <button className={styles.secondaryBtn} onClick={() => navigator.clipboard?.writeText(localDisplayServerUrl)}>Kopieren</button>
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          )}
+
           <div className={styles.serverActions}>
-            <button className={styles.secondaryBtn} onClick={() => window.open(`${window.location.origin}${window.location.pathname}#/kundendisplay`, "_blank")}>Kundenanzeige öffnen</button>
+            <button className={styles.secondaryBtn} onClick={() => { window.location.hash = "#/kundendisplay"; }}>
+              📱 Dieses Gerät als Kundendisplay starten
+            </button>
           </div>
         </div>
 
