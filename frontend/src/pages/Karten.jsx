@@ -271,6 +271,28 @@ export default function Karten() {
     }
   };
 
+  const resetPaymentPin = async () => {
+    if (!selected) return;
+    if (!confirm(`Zahlungs-PIN von "${selected.name}" zurücksetzen? Danach kann der Kunde am Kundendisplay einen neuen PIN aktivieren.`)) return;
+    try {
+      const res = await apiFetch(`/api/customers/${selected.id}/payment-pin`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "off" }),
+      });
+      const data = await res.json();
+      if (!res.ok) return showMsg(data.error || "PIN konnte nicht zurückgesetzt werden", "err");
+      setSelected(data);
+      setPinMode("off");
+      setPinValue("");
+      setPinThreshold("5");
+      await fetchCustomers();
+      showMsg("PIN zurückgesetzt ✓");
+    } catch {
+      showMsg("Server nicht erreichbar", "err");
+    }
+  };
+
   // ── Add a token to selected customer (Mami bekommt jetzt auch QR / neue Karte nach Verlust) ──
   const addTokenToSelected = async () => {
     if (!selected || !newTokenValue) return showMsg("Bitte Wert eingeben/scannen", "err");
@@ -597,7 +619,12 @@ export default function Karten() {
                             </label>
                           )}
                         </div>
-                        <button type="button" className={styles.secondaryBtn} onClick={savePaymentPin}>PIN-Einstellung speichern</button>
+                        <div className={styles.detailActions}>
+                          <button type="button" className={styles.secondaryBtn} onClick={savePaymentPin}>PIN-Einstellung speichern</button>
+                          {selected.payment_pin_configured && (
+                            <button type="button" className={styles.dangerBtn} onClick={resetPaymentPin}>PIN vergessen / zurücksetzen</button>
+                          )}
+                        </div>
                       </div>
 
                       <div className={styles.detailBlock}>

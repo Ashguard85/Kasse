@@ -858,6 +858,38 @@ app.get("/api/lookup/:identifier", (req, res) => {
   if (!customer) return res.status(404).json({ error: "Kunde ist in diesem Profil nicht aktiv oder wurde nicht gefunden" });
   res.json(customer);
 });
+app.post("/api/customer-selfservice/pin", (req, res) => {
+  const profileId = getProfileId(req);
+  const identifier = String(req.body?.identifier || "");
+  const action = String(req.body?.action || "");
+  const customer = lookupCustomer(identifier, profileId);
+  if (!customer) return res.status(404).json({ error: "Kunde nicht gefunden" });
+  const raw = db.prepare("SELECT * FROM customers WHERE id = ?").get(customer.id);
+  if (!raw) return res.status(404).json({ error: "Kunde nicht gefunden" });
+
+  const currentPin = String(req.body?.current_pin || "");
+  const newPin = String(req.body?.new_pin || "");
+
+  if (action === "set") {
+    if (raw.payment_pin_hash && !verifyPaymentPin(raw, currentPin)) {
+      return res.status(403).json({ error: "Aktueller PIN ist falsch", pin_invalid: true });
+    }
+    if (!/^\d{4,8}$/.test(newPin)) return res.status(400).json({ error: "Neuer PIN muss 4–8 Ziffern haben" });
+    const secured = hashPaymentPin(newPin);
+    const mode = ["always","threshold"].includes(raw.payment_pin_mode) ? raw.payment_pin_mode : "always";
+    db.prepare("UPDATE customers SET payment_pin_mode=?, payment_pin_hash=?, payment_pin_salt=? WHERE id=?")
+      .run(mode, secured.hash, secured.salt, raw.id);
+  } else if (action === "disable") {
+    if (!raw.payment_pin_hash) return res.status(409).json({ error: "Für diesen Kunden ist kein PIN eingerichtet" });
+    if (!verifyPaymentPin(raw, currentPin)) return res.status(403).json({ error: "Aktueller PIN ist falsch", pin_invalid: true });
+    db.prepare("UPDATE customers SET payment_pin_mode='off', payment_pin_hash=NULL, payment_pin_salt=NULL, payment_pin_threshold=0 WHERE id=?").run(raw.id);
+  } else {
+    return res.status(400).json({ error: "Unbekannte Aktion" });
+  }
+
+  res.json(getCustomerWithTokens(raw.id, profileId));
+});
+
 app.post("/api/customers/:id/topup", (req, res) => {
   const profileId = getProfileId(req);
   const amount = positiveNumber(req.body.amount);
@@ -1008,7 +1040,7 @@ function cleanDisplayPayload(input = {}) {
         bannerText: String(theme.bannerText || "Willkommen!").slice(0, 100),
       },
     },
-    status: ["shop", "payment", "pin", "success", "error"].includes(input.status) ? input.status : "shop",
+    status: ["shop", "payment", "pin", "account", "success", "error"].includes(input.status) ? input.status : "shop",
     paymentMode: String(input.paymentMode || "").slice(0, 30),
     total: money(Number(input.total) || 0),
     tendered: Number.isFinite(Number(input.tendered)) ? money(Number(input.tendered)) : null,
@@ -1018,6 +1050,15 @@ function cleanDisplayPayload(input = {}) {
       required: true,
       customerName: String(input.pinRequest.customerName || "").slice(0, 80),
       invalid: input.pinRequest.invalid === true,
+    } : null,
+    account: input?.account ? {
+      customerName: String(input.account.customerName || "").slice(0,80),
+      balance: money(Number(input.account.balance) || 0),
+      pinConfigured: input.account.pinConfigured === true,
+      pinMode: ["always","threshold"].includes(input.account.pinMode) ? input.account.pinMode : "off",
+      pinThreshold: money(Number(input.account.pinThreshold) || 0),
+      message: String(input.account.message || "").slice(0,160),
+      error: String(input.account.error || "").slice(0,160),
     } : null,
     items,
     updatedAt: new Date().toISOString(),
@@ -1101,7 +1142,7 @@ app.get("/api/admin/kiosk-reset-version", (req, res) => {
 
 app.get("/api/status", (req, res) => {
   const profile = profileToJson(db.prepare("SELECT * FROM profiles WHERE id = ?").get(getProfileId(req)));
-  res.json({ app: "KinderKasse", version: "2.7.0", profile });
+  res.json({ app: "KinderKasse", version: "2.8.0", profile });
 });
 
 app.listen(PORT, () => console.log(`Kasse backend running on :${PORT}`));

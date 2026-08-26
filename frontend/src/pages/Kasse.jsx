@@ -80,7 +80,7 @@ export default function Kasse() {
   const [articles, setArticles] = useState([]); // gefiltert für die Anzeige
   const [letter, setLetter] = useState("ALL");
   const [page, setPage] = useState(0);
-  const [phase, setPhase] = useState("shop"); // shop | payment | pin | success | error
+  const [phase, setPhase] = useState("shop"); // shop | payment | pin | account | success | error
   const [payMode, setPayMode] = useState("nfc"); // "nfc" | "qr" | "bleNfc" | "manual" | "cash"
   // Welche Methoden sind freigeschaltet (aus den Einstellungen, gemeinsam für alle Geräte)
   const [enabledModes, setEnabledModes] = useState({ nfc: true, qr: true, bleNfc: true, manual: true, cash: true });
@@ -95,6 +95,10 @@ export default function Kasse() {
   const [pendingPaymentIdentifier, setPendingPaymentIdentifier] = useState("");
   const [pinCustomerName, setPinCustomerName] = useState("");
   const [pinInvalid, setPinInvalid] = useState(false);
+  const [accountIdentifier, setAccountIdentifier] = useState("");
+  const [accountCustomer, setAccountCustomer] = useState(null);
+  const [accountMessage, setAccountMessage] = useState("");
+  const [accountError, setAccountError] = useState("");
   const [nfcStatus, setNfcStatus] = useState("");
   const [cardInfo, setCardInfo] = useState(null);
   const [errorMsg, setErrorMsg] = useState("");
@@ -238,6 +242,15 @@ export default function Kasse() {
         customerName: pinCustomerName,
         invalid: pinInvalid,
       } : null,
+      account: phase === "account" && accountCustomer ? {
+        customerName: accountCustomer.name,
+        balance: accountCustomer.balance,
+        pinConfigured: accountCustomer.payment_pin_configured === true,
+        pinMode: accountCustomer.payment_pin_mode || "off",
+        pinThreshold: accountCustomer.payment_pin_threshold || 0,
+        message: accountMessage,
+        error: accountError,
+      } : null,
       items: phase === "success" && displaySale
         ? displaySale.items
         : cart.map((item) => ({ name: item.name, qty: item.qty, price: item.price })),
@@ -261,13 +274,15 @@ export default function Kasse() {
       }).catch(() => {});
     }, 120);
     return () => clearTimeout(timer);
-  }, [cart, total, phase, payMode, cashTendered, customerDisplayEnabled, customerDisplayType, errorMsg, displaySale, activeProfile?.id, customerDisplayBle, pinCustomerName, pinInvalid]);
+  }, [cart, total, phase, payMode, cashTendered, customerDisplayEnabled, customerDisplayType, errorMsg, displaySale, activeProfile?.id, customerDisplayBle, pinCustomerName, pinInvalid, accountCustomer, accountMessage, accountError]);
 
   // Kundenterminal-Rückkanal: PIN kommt bei Docker über die API und bei einem
   // lokalen Tablet über den nativen Displayserver. BLE-PINs werden im
   // CustomerDisplayBleContext als Eingabeereignis bereitgestellt.
   useEffect(() => {
-    if (phase !== "pin" || !pendingPaymentIdentifier) return undefined;
+    if (phase !== "pin" && phase !== "account") return undefined;
+    if (phase === "pin" && !pendingPaymentIdentifier) return undefined;
+    if (phase === "account" && !accountIdentifier) return undefined;
     let cancelled = false;
     let timer;
 
@@ -283,14 +298,34 @@ export default function Kasse() {
           input = customerDisplayBle.consumeInput?.() || null;
         }
 
-        if (cancelled || !input) return;
-        if (input.action === "cancel") {
+        if (cancelled || !input || (!input.action && !input.pin)) return;
+        if (input.action === "cancel" || input.action === "account_close") {
           resetShop();
           return;
         }
-        if (/^\d{4,8}$/.test(String(input.pin || ""))) {
+        if (phase === "pin" && /^\d{4,8}$/.test(String(input.pin || ""))) {
           paymentDoneRef.current = true;
           await processPayment(pendingPaymentIdentifier, String(input.pin));
+          return;
+        }
+        if (phase === "account" && ["account_set_pin","account_disable_pin"].includes(input.action)) {
+          setAccountMessage("");
+          setAccountError("");
+          const body = input.action === "account_disable_pin"
+            ? { identifier: accountIdentifier, action: "disable", current_pin: String(input.currentPin || "") }
+            : { identifier: accountIdentifier, action: "set", current_pin: String(input.currentPin || ""), new_pin: String(input.newPin || "") };
+          const res = await apiFetch("/api/customer-selfservice/pin", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            setAccountError(data.error || "PIN konnte nicht geändert werden");
+            return;
+          }
+          setAccountCustomer(data);
+          setAccountMessage(input.action === "account_disable_pin" ? "PIN deaktiviert ✓" : "PIN gespeichert ✓");
         }
       } catch {}
     };
@@ -298,7 +333,21 @@ export default function Kasse() {
     consume();
     timer = window.setInterval(consume, 350);
     return () => { cancelled = true; if (timer) window.clearInterval(timer); };
-  }, [phase, pendingPaymentIdentifier, customerDisplayType, customerDisplayBle]);
+  }, [phase, pendingPaymentIdentifier, accountIdentifier, customerDisplayType, customerDisplayBle]);
+
+  // Self-Service: Bei leerem Warenkorb darf eine Karte an der bereits
+  // verbundenen NFC-Box direkt das Kundenkonto am Kundendisplay öffnen.
+  useEffect(() => {
+    if (!customerDisplayEnabled || cart.length !== 0 || phase !== "shop" || nfc.status !== "connected") return undefined;
+    let busy = false;
+    const unsubscribe = nfc.subscribeUid(async (uid) => {
+      if (busy) return;
+      busy = true;
+      await openCustomerAccount(uid);
+      window.setTimeout(() => { busy = false; }, 800);
+    });
+    return unsubscribe;
+  }, [customerDisplayEnabled, cart.length, phase, nfc.status, activeProfile?.id]);
 
   // ── Swipe-Navigation zwischen Seiten ──
   // Reine Touch-Events statt einer externen Library, da nur ein simpler
@@ -332,6 +381,30 @@ export default function Kasse() {
   // Safari-Fix: bei QR-Modus wird startQr() direkt aufgerufen, BEVOR irgendwelche
   // setState-Aufrufe einen Re-Render auslösen — sonst verliert iOS WebKit die
   // "user gesture" und der Kamera-Prompt erscheint nicht.
+  const openCustomerAccount = async (identifier) => {
+    if (!identifier || cart.length !== 0 || !customerDisplayEnabled) return false;
+    setNfcStatus("Öffne Kundenkonto …");
+    try {
+      const res = await apiFetch(`/api/lookup/${encodeURIComponent(identifier)}`);
+      const customer = await res.json();
+      if (!res.ok) {
+        setNfcStatus(customer.error || "Kunde nicht gefunden");
+        return false;
+      }
+      setAccountIdentifier(identifier);
+      setAccountCustomer(customer);
+      setAccountMessage("");
+      setAccountError("");
+      setCardInfo(null);
+      setPhase("account");
+      setNfcStatus("");
+      return true;
+    } catch {
+      setNfcStatus("Kundenkonto konnte nicht geladen werden.");
+      return false;
+    }
+  };
+
   const startPayment = () => {
     if (cart.length === 0) return;
     paymentDoneRef.current = false; // Guard zurücksetzen für neue Zahlung
@@ -686,6 +759,10 @@ export default function Kasse() {
     setPendingPaymentIdentifier("");
     setPinCustomerName("");
     setPinInvalid(false);
+    setAccountIdentifier("");
+    setAccountCustomer(null);
+    setAccountMessage("");
+    setAccountError("");
     setDisplaySale(null);
   };
 
@@ -835,7 +912,7 @@ export default function Kasse() {
       </div>
 
       {/* Overlay */}
-      {(phase === "payment" || phase === "pin" || phase === "success" || phase === "error") && (
+      {(phase === "payment" || phase === "pin" || phase === "account" || phase === "success" || phase === "error") && (
         <div className={styles.overlay}>
           <div className={styles.modal}>
             {phase === "payment" && (
@@ -916,6 +993,15 @@ export default function Kasse() {
                   </button>
                 )}
                 <button className={styles.cancelBtn} onClick={resetShop}>Abbrechen</button>
+              </>
+            )}
+            {phase === "account" && (
+              <>
+                <div className={styles.nfcIcon}>👤</div>
+                <h2>Kundenkonto am Kundendisplay</h2>
+                {accountCustomer && <p><strong>{accountCustomer.name}</strong> · {priceStr(accountCustomer.balance)}</p>}
+                <p className={styles.nfcStatus}>PIN kann am Kundendisplay verwaltet werden.</p>
+                <button className={styles.cancelBtn} onClick={resetShop}>Kundenkonto schließen</button>
               </>
             )}
             {phase === "pin" && (

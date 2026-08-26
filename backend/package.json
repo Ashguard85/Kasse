@@ -1,6 +1,6 @@
 {
   "name": "kasse-backend",
-  "version": "2.7.0",
+  "version": "2.8.0",
   "main": "server.js",
   "dependencies": {
     "better-sqlite3": "^9.4.3",

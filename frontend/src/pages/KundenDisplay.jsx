@@ -43,6 +43,11 @@ export default function KundenDisplay() {
   const [localSourceDraft, setLocalSourceDraft] = useState(() => getSavedLocalSource());
   const [pinEntry, setPinEntry] = useState("");
   const [pinSending, setPinSending] = useState(false);
+  const [accountMode, setAccountMode] = useState("home");
+  const [accountCurrentPin, setAccountCurrentPin] = useState("");
+  const [accountNewPin, setAccountNewPin] = useState("");
+  const [accountNewPin2, setAccountNewPin2] = useState("");
+  const [accountError, setAccountError] = useState("");
   const itemsRef = useRef(null);
   const previousItemSignatureRef = useRef("");
 
@@ -114,6 +119,24 @@ export default function KundenDisplay() {
   useEffect(() => {
     if (state.status === "pin") setPinEntry("");
   }, [state.status, state?.pinRequest?.invalid]);
+  useEffect(() => {
+    if (state.status !== "account") {
+      setAccountMode("home");
+      setAccountCurrentPin("");
+      setAccountNewPin("");
+      setAccountNewPin2("");
+      setAccountError("");
+    } else if (state?.account?.error) {
+      setAccountError(state.account.error);
+    } else if (state?.account?.message) {
+      setAccountMode("home");
+      setAccountCurrentPin("");
+      setAccountNewPin("");
+      setAccountNewPin2("");
+      setAccountError("");
+    }
+  }, [state.status, state?.account?.message, state?.account?.error]);
+
 
   const sendTerminalInput = async (payload) => {
     if (pinSending) return;
@@ -146,6 +169,24 @@ export default function KundenDisplay() {
     if (!/^\d{4,8}$/.test(pinEntry)) return;
     await sendTerminalInput({ pin: pinEntry });
     setPinEntry("");
+  };
+
+  const submitAccountPin = async () => {
+    setAccountError("");
+    if (!/^\d{4,8}$/.test(accountNewPin)) return setAccountError("Neuer PIN muss 4–8 Ziffern haben.");
+    if (accountNewPin !== accountNewPin2) return setAccountError("Die beiden neuen PINs stimmen nicht überein.");
+    if (state?.account?.pinConfigured && !/^\d{4,8}$/.test(accountCurrentPin)) return setAccountError("Bitte aktuellen PIN eingeben.");
+    await sendTerminalInput({
+      action: "account_set_pin",
+      currentPin: accountCurrentPin,
+      newPin: accountNewPin,
+    });
+  };
+
+  const disableAccountPin = async () => {
+    setAccountError("");
+    if (!/^\d{4,8}$/.test(accountCurrentPin)) return setAccountError("Bitte aktuellen PIN eingeben.");
+    await sendTerminalInput({ action: "account_disable_pin", currentPin: accountCurrentPin });
   };
 
   const saveSource = () => {
@@ -185,6 +226,53 @@ export default function KundenDisplay() {
           />
           <button onClick={saveSource}>Verbinden</button>
           <small>Beide Geräte müssen im selben WLAN sein. Alternativ kann das Kassen-Tablet einen Hotspot bereitstellen.</small>
+        </div>
+      ) : state.status === "account" ? (
+        <div className={styles.accountTerminal}>
+          <div className={styles.accountAvatar}>👤</div>
+          <h2>Hallo {state?.account?.customerName || ""}</h2>
+          <div className={styles.accountBalance}>
+            <span>Guthaben</span>
+            <strong>{priceStr(state?.account?.balance)}</strong>
+          </div>
+
+          {state?.account?.message && <div className={styles.accountOk}>{state.account.message}</div>}
+          {(accountError || state?.account?.error) && <div className={styles.pinError}>{accountError || state.account.error}</div>}
+
+          {accountMode === "home" && (
+            <div className={styles.accountActions}>
+              {!state?.account?.pinConfigured ? (
+                <button onClick={() => setAccountMode("set")}>🔐 PIN aktivieren</button>
+              ) : (
+                <>
+                  <button onClick={() => setAccountMode("set")}>🔁 PIN ändern</button>
+                  <button className={styles.accountDanger} onClick={() => setAccountMode("disable")}>PIN deaktivieren</button>
+                </>
+              )}
+              <button className={styles.accountClose} onClick={() => sendTerminalInput({ action: "account_close" })}>Fertig</button>
+            </div>
+          )}
+
+          {accountMode === "set" && (
+            <div className={styles.accountForm}>
+              {state?.account?.pinConfigured && (
+                <input type="password" inputMode="numeric" maxLength={8} value={accountCurrentPin} onChange={(e)=>setAccountCurrentPin(e.target.value.replace(/\D/g,""))} placeholder="Aktueller PIN" />
+              )}
+              <input type="password" inputMode="numeric" maxLength={8} value={accountNewPin} onChange={(e)=>setAccountNewPin(e.target.value.replace(/\D/g,""))} placeholder="Neuer PIN (4–8 Ziffern)" />
+              <input type="password" inputMode="numeric" maxLength={8} value={accountNewPin2} onChange={(e)=>setAccountNewPin2(e.target.value.replace(/\D/g,""))} placeholder="Neuen PIN wiederholen" />
+              <button onClick={submitAccountPin}>PIN speichern</button>
+              <button className={styles.accountClose} onClick={()=>{setAccountMode("home");setAccountError("");}}>Zurück</button>
+            </div>
+          )}
+
+          {accountMode === "disable" && (
+            <div className={styles.accountForm}>
+              <p>Zum Deaktivieren bitte den aktuellen PIN eingeben.</p>
+              <input type="password" inputMode="numeric" maxLength={8} value={accountCurrentPin} onChange={(e)=>setAccountCurrentPin(e.target.value.replace(/\D/g,""))} placeholder="Aktueller PIN" />
+              <button className={styles.accountDanger} onClick={disableAccountPin}>PIN deaktivieren</button>
+              <button className={styles.accountClose} onClick={()=>{setAccountMode("home");setAccountError("");}}>Zurück</button>
+            </div>
+          )}
         </div>
       ) : state.status === "pin" ? (
         <div className={styles.pinTerminal}>
