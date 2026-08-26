@@ -136,3 +136,140 @@
 .accountDanger{background:var(--red,#b91c1c)!important}
 .accountClose{background:var(--gray-200)!important;color:var(--gray-800)!important}
 .accountOk{padding:10px 14px;border-radius:10px;background:var(--green-light,#dcfce7);color:var(--green-dark,#166534);font-weight:900}
+
+
+/* Kundendisplay 2.8.1: kein Banner, nur schlanker Profilrahmen. */
+.frame {
+  flex: 1;
+  min-height: 0;
+  margin: 8px;
+  border: 5px solid var(--customer-frame, var(--green));
+  border-radius: 18px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--register-background, var(--app-background, #f3f4f6));
+}
+.frame > .content { padding: 14px; }
+.header { display: none; }
+
+/* Kundenkonto: für Breitbild bewusst als zwei gleichzeitige Bereiche. */
+.accountTerminal {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(280px, 38%) minmax(420px, 62%);
+  gap: 16px;
+  padding: 16px;
+  text-align: left;
+  align-items: stretch;
+}
+.accountLeft,
+.accountRight {
+  min-width: 0;
+  min-height: 0;
+  border-radius: 18px;
+  background: var(--surface, #fff);
+  box-shadow: 0 3px 14px rgba(0,0,0,.08);
+  padding: clamp(18px, 2.5vw, 30px);
+}
+.accountLeft {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.accountRight {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 14px;
+}
+.accountIdentity {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.accountAvatar { font-size: clamp(44px, 5vw, 70px); line-height: 1; }
+.accountHello { color: var(--gray-500); font-size: 16px; font-weight: 800; }
+.accountTerminal h2 { margin: 0; font-size: clamp(28px, 4vw, 48px); line-height: 1.05; }
+.accountBalance {
+  min-width: 0;
+  width: 100%;
+  padding: 15px 18px;
+  border-radius: 14px;
+  box-shadow: none;
+  border: 2px solid var(--gray-100, #eee);
+  text-align: left;
+}
+.accountBalance span { font-size: 15px; }
+.accountBalance strong { font-size: clamp(32px, 4.5vw, 54px); }
+.accountStatus {
+  padding: 13px 16px;
+  border-radius: 12px;
+  background: var(--gray-50, #f7f7f7);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.accountStatus span { color: var(--gray-600); font-weight: 800; }
+.accountStatus strong { color: var(--green); }
+.accountActions {
+  width: 100%;
+  margin-top: auto;
+}
+.accountActions button,
+.accountForm button {
+  min-height: 50px;
+}
+.accountRight .pinError,
+.accountRight .accountOk {
+  width: 100%;
+  text-align: center;
+}
+.accountHint {
+  margin: auto;
+  max-width: 440px;
+  text-align: center;
+  color: var(--gray-600);
+}
+.accountHint span { display: block; font-size: 56px; }
+.accountHint h3 { margin: 8px 0 4px; color: var(--gray-800); font-size: 28px; }
+.accountHint p { margin: 0; font-size: 17px; line-height: 1.4; }
+.accountForm {
+  width: 100%;
+  max-width: 560px;
+  margin: auto;
+  gap: 12px;
+}
+.accountForm h3 { margin: 0 0 4px; font-size: clamp(26px, 3.5vw, 38px); text-align: center; }
+.accountForm p { text-align: center; margin: 0 0 4px; color: var(--gray-600); }
+.accountForm label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--gray-600);
+  font-weight: 900;
+  font-size: 14px;
+}
+.accountForm input {
+  min-height: 54px;
+  font-size: 21px;
+}
+.accountFormActions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+@media (max-width: 760px), (orientation: portrait) and (max-width: 900px) {
+  .frame { margin: 5px; border-width: 4px; }
+  .accountTerminal {
+    overflow-y: auto;
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto;
+  }
+  .accountActions { margin-top: 0; }
+  .accountFormActions { grid-template-columns: 1fr; }
+}

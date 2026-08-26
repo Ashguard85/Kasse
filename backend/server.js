@@ -1079,8 +1079,18 @@ let customerDisplayInput = null;
 app.post("/api/customer-display/input", (req, res) => {
   const pin = String(req.body?.pin || "");
   const action = String(req.body?.action || "");
+  const currentPin = String(req.body?.currentPin || "");
+  const newPin = String(req.body?.newPin || "");
   if (pin && !/^\d{1,8}$/.test(pin)) return res.status(400).json({ error: "Ungültige PIN-Eingabe" });
-  customerDisplayInput = { pin, action, createdAt: Date.now() };
+  if (currentPin && !/^\d{4,8}$/.test(currentPin)) return res.status(400).json({ error: "Ungültiger aktueller PIN" });
+  if (newPin && !/^\d{4,8}$/.test(newPin)) return res.status(400).json({ error: "Ungültiger neuer PIN" });
+  customerDisplayInput = {
+    pin,
+    action: action.slice(0, 40),
+    currentPin,
+    newPin,
+    createdAt: Date.now(),
+  };
   res.json({ success: true });
 });
 app.get("/api/customer-display/input", (req, res) => {
@@ -1142,7 +1152,7 @@ app.get("/api/admin/kiosk-reset-version", (req, res) => {
 
 app.get("/api/status", (req, res) => {
   const profile = profileToJson(db.prepare("SELECT * FROM profiles WHERE id = ?").get(getProfileId(req)));
-  res.json({ app: "KinderKasse", version: "2.8.0", profile });
+  res.json({ app: "KinderKasse", version: "2.8.1", profile });
 });
 
 app.listen(PORT, () => console.log(`Kasse backend running on :${PORT}`));

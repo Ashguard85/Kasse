@@ -158,8 +158,16 @@ export default function KundenDisplay() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
-        if (!res.ok) throw new Error();
+        if (!res.ok) {
+          let data = {};
+          try { data = await res.json(); } catch {}
+          throw new Error(data.error || "Eingabe konnte nicht übertragen werden");
+        }
       }
+      return true;
+    } catch (error) {
+      if (state.status === "account") setAccountError(error?.message || "Eingabe konnte nicht übertragen werden");
+      return false;
     } finally {
       setPinSending(false);
     }
@@ -195,23 +203,11 @@ export default function KundenDisplay() {
     setConnection(clean ? "loading" : "setup");
   };
 
-  return (
-    <div className={styles.screen}>
-      <header
-        className={styles.header}
-        style={{
-          backgroundColor: theme.bannerBackground || "var(--green)",
-          backgroundImage: theme.bannerImageDataUrl ? `linear-gradient(rgba(0,0,0,.25),rgba(0,0,0,.25)),url(${theme.bannerImageDataUrl})` : undefined,
-          color: theme.bannerTextColor || "#fff",
-        }}
-      >
-        {theme.logoImageDataUrl && <img src={theme.logoImageDataUrl} className={styles.logo} alt="" />}
-        <div>
-          <h1>{profileName}</h1>
-          <p>{theme.bannerText || "Willkommen!"}</p>
-        </div>
-      </header>
+  const frameColor = theme.bannerBackground || theme.primaryColor || "var(--green)";
 
+  return (
+    <div className={styles.screen} style={{ "--customer-frame": frameColor }}>
+      <div className={styles.frame}>
       {localMode && connection === "setup" ? (
         <div className={styles.setupPanel}>
           <div className={styles.setupIcon}>📱</div>
@@ -229,50 +225,89 @@ export default function KundenDisplay() {
         </div>
       ) : state.status === "account" ? (
         <div className={styles.accountTerminal}>
-          <div className={styles.accountAvatar}>👤</div>
-          <h2>Hallo {state?.account?.customerName || ""}</h2>
-          <div className={styles.accountBalance}>
-            <span>Guthaben</span>
-            <strong>{priceStr(state?.account?.balance)}</strong>
-          </div>
+          <section className={styles.accountLeft}>
+            <div className={styles.accountIdentity}>
+              <div className={styles.accountAvatar}>👤</div>
+              <div>
+                <div className={styles.accountHello}>Hallo</div>
+                <h2>{state?.account?.customerName || ""}</h2>
+              </div>
+            </div>
 
-          {state?.account?.message && <div className={styles.accountOk}>{state.account.message}</div>}
-          {(accountError || state?.account?.error) && <div className={styles.pinError}>{accountError || state.account.error}</div>}
+            <div className={styles.accountBalance}>
+              <span>Guthaben</span>
+              <strong>{priceStr(state?.account?.balance)}</strong>
+            </div>
 
-          {accountMode === "home" && (
+            <div className={styles.accountStatus}>
+              <span>Zahlungs-PIN</span>
+              <strong>{state?.account?.pinConfigured ? "Aktiv" : "Nicht aktiviert"}</strong>
+            </div>
+
             <div className={styles.accountActions}>
               {!state?.account?.pinConfigured ? (
-                <button onClick={() => setAccountMode("set")}>🔐 PIN aktivieren</button>
+                <button onClick={() => { setAccountMode("set"); setAccountError(""); }}>🔐 PIN aktivieren</button>
               ) : (
                 <>
-                  <button onClick={() => setAccountMode("set")}>🔁 PIN ändern</button>
-                  <button className={styles.accountDanger} onClick={() => setAccountMode("disable")}>PIN deaktivieren</button>
+                  <button onClick={() => { setAccountMode("set"); setAccountError(""); }}>🔁 PIN ändern</button>
+                  <button className={styles.accountDanger} onClick={() => { setAccountMode("disable"); setAccountError(""); }}>PIN deaktivieren</button>
                 </>
               )}
               <button className={styles.accountClose} onClick={() => sendTerminalInput({ action: "account_close" })}>Fertig</button>
             </div>
-          )}
+          </section>
 
-          {accountMode === "set" && (
-            <div className={styles.accountForm}>
-              {state?.account?.pinConfigured && (
-                <input type="password" inputMode="numeric" maxLength={8} value={accountCurrentPin} onChange={(e)=>setAccountCurrentPin(e.target.value.replace(/\D/g,""))} placeholder="Aktueller PIN" />
-              )}
-              <input type="password" inputMode="numeric" maxLength={8} value={accountNewPin} onChange={(e)=>setAccountNewPin(e.target.value.replace(/\D/g,""))} placeholder="Neuer PIN (4–8 Ziffern)" />
-              <input type="password" inputMode="numeric" maxLength={8} value={accountNewPin2} onChange={(e)=>setAccountNewPin2(e.target.value.replace(/\D/g,""))} placeholder="Neuen PIN wiederholen" />
-              <button onClick={submitAccountPin}>PIN speichern</button>
-              <button className={styles.accountClose} onClick={()=>{setAccountMode("home");setAccountError("");}}>Zurück</button>
-            </div>
-          )}
+          <section className={styles.accountRight}>
+            {state?.account?.message && <div className={styles.accountOk}>{state.account.message}</div>}
+            {(accountError || state?.account?.error) && <div className={styles.pinError}>{accountError || state.account.error}</div>}
 
-          {accountMode === "disable" && (
-            <div className={styles.accountForm}>
-              <p>Zum Deaktivieren bitte den aktuellen PIN eingeben.</p>
-              <input type="password" inputMode="numeric" maxLength={8} value={accountCurrentPin} onChange={(e)=>setAccountCurrentPin(e.target.value.replace(/\D/g,""))} placeholder="Aktueller PIN" />
-              <button className={styles.accountDanger} onClick={disableAccountPin}>PIN deaktivieren</button>
-              <button className={styles.accountClose} onClick={()=>{setAccountMode("home");setAccountError("");}}>Zurück</button>
-            </div>
-          )}
+            {accountMode === "home" && (
+              <div className={styles.accountHint}>
+                <span>👈</span>
+                <h3>PIN verwalten</h3>
+                <p>Links eine Aktion auswählen. Die Eingabe erscheint hier.</p>
+              </div>
+            )}
+
+            {accountMode === "set" && (
+              <div className={styles.accountForm}>
+                <h3>{state?.account?.pinConfigured ? "PIN ändern" : "PIN aktivieren"}</h3>
+                {state?.account?.pinConfigured && (
+                  <label>
+                    Aktueller PIN
+                    <input type="password" inputMode="numeric" maxLength={8} value={accountCurrentPin} onChange={(e)=>setAccountCurrentPin(e.target.value.replace(/\D/g,""))} placeholder="4–8 Ziffern" />
+                  </label>
+                )}
+                <label>
+                  Neuer PIN
+                  <input type="password" inputMode="numeric" maxLength={8} value={accountNewPin} onChange={(e)=>setAccountNewPin(e.target.value.replace(/\D/g,""))} placeholder="4–8 Ziffern" />
+                </label>
+                <label>
+                  Neuer PIN wiederholen
+                  <input type="password" inputMode="numeric" maxLength={8} value={accountNewPin2} onChange={(e)=>setAccountNewPin2(e.target.value.replace(/\D/g,""))} placeholder="4–8 Ziffern" />
+                </label>
+                <div className={styles.accountFormActions}>
+                  <button onClick={submitAccountPin} disabled={pinSending}>PIN speichern</button>
+                  <button className={styles.accountClose} onClick={()=>{setAccountMode("home");setAccountError("");setAccountCurrentPin("");setAccountNewPin("");setAccountNewPin2("");}}>Zurück</button>
+                </div>
+              </div>
+            )}
+
+            {accountMode === "disable" && (
+              <div className={styles.accountForm}>
+                <h3>PIN deaktivieren</h3>
+                <p>Zur Sicherheit ist der aktuelle PIN erforderlich.</p>
+                <label>
+                  Aktueller PIN
+                  <input type="password" inputMode="numeric" maxLength={8} value={accountCurrentPin} onChange={(e)=>setAccountCurrentPin(e.target.value.replace(/\D/g,""))} placeholder="4–8 Ziffern" />
+                </label>
+                <div className={styles.accountFormActions}>
+                  <button className={styles.accountDanger} onClick={disableAccountPin} disabled={pinSending}>PIN deaktivieren</button>
+                  <button className={styles.accountClose} onClick={()=>{setAccountMode("home");setAccountError("");setAccountCurrentPin("");}}>Zurück</button>
+                </div>
+              </div>
+            )}
+          </section>
         </div>
       ) : state.status === "pin" ? (
         <div className={styles.pinTerminal}>
@@ -349,6 +384,7 @@ export default function KundenDisplay() {
           </aside>
         </main>
       )}
+      </div>
 
       <button className={styles.exit} onClick={() => { window.location.hash = "#/einstellungen"; }}>⚙️</button>
     </div>
