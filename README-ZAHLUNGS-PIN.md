@@ -1,31 +1,86 @@
-# Zahlungs-PIN – KinderKasse 2.6.0
+# Zahlungs-PIN und Kundenkonto – KinderKasse 2.8.0
 
-## Einrichten
-Karten/Kunden → Kunde öffnen → Zahlungs-PIN.
+## Zahlungs-PIN pro Kunde
 
-Verfügbare Regeln:
+In **Karten → Kunde → Zahlungs-PIN** stehen zur Verfügung:
+
 - Kein PIN
 - PIN immer verlangen
 - PIN ab Betrag
 
-Der PIN besteht aus 4–8 Ziffern.
+PIN-Länge: 4–8 Ziffern.
+
+Der PIN ist nicht auslesbar. Docker speichert einen gesalzenen scrypt-Hash; der
+lokale APK-Modus einen gesalzenen Hash im lokalen Datenspeicher.
+
+## PIN vergessen
+
+Ein vergessener PIN kann nicht angezeigt werden.
+
+Das Kassenpersonal öffnet:
+**Karten → Kunde → Zahlungs-PIN → PIN vergessen / zurücksetzen**
+
+Damit wird nur der Zahlungs-PIN entfernt. Guthaben, Karten, Kundenkonto und
+Verlauf bleiben erhalten.
+
+Danach kann der Kunde seine Karte bei leerem Warenkorb erneut scannen und am
+Kundendisplay einen neuen PIN aktivieren.
+
+## Kunden-Self-Service am Kundendisplay
+
+Voraussetzungen:
+- Kundenanzeige aktiviert
+- Warenkorb leer
+- NFC-Box verbunden
+- bekannte Kundenkarte wird gescannt
+
+Dann wechselt das Kundendisplay automatisch ins Kundenkonto.
+
+Der Kunde sieht:
+- Name
+- aktuelles Guthaben
+- PIN-Status
+
+Mögliche Aktionen:
+- PIN aktivieren
+- PIN ändern
+- PIN deaktivieren
+- Kundenkonto schließen
+
+Bei vorhandenem PIN gilt:
+- Ändern → aktueller PIN erforderlich
+- Deaktivieren → aktueller PIN erforderlich
+
+Nicht erlaubt sind:
+- Guthaben aufladen
+- Kundendaten ändern
+- andere Kunden ansehen
+- Profile/Einstellungen verwalten
+
+## Anzeigevarianten
+
+### ESP32-S3 Touchdisplay
+Firmware 1.2.0.
+
+Docker/Server:
+- WLAN/Cloudflare
+- `/api/customer-display`
+- Rückkanal `/api/customer-display/input`
+
+Lokale APK:
+- BLE `KasseDisplay`
+- Rückkanal per BLE Notify
+
+### Zweites Handy / Tablet
+Docker:
+- `#/kundendisplay`
+
+Lokal:
+- WLAN/Hotspot
+- Kassen-APK Displayserver Port 3890
+- Rückkanal `/input`
 
 ## Zahlungsablauf
-1. Kundenkarte/NFC/QR lesen.
-2. KinderKasse prüft, ob für diesen Kunden und Betrag ein PIN nötig ist.
-3. Falls nein: Zahlung wie bisher.
-4. Falls ja: noch keine Abbuchung; Kundendisplay zeigt PIN-Tastatur.
-5. Kundendisplay sendet PIN an die Kasse.
-6. Richtiger PIN: Zahlung wird ausgeführt.
-7. Falscher PIN: keine Abbuchung, erneute Eingabe.
 
-## Kundendisplays
-- Docker/Server + Tablet/Handy: Rückkanal `/api/customer-display/input`
-- Lokale APK + Tablet/Handy: lokaler Displayserver Port 3890, `/input`
-- Docker/Server + ESP32: WLAN/Cloudflare, `/api/customer-display/input`
-- Lokale APK + ESP32: BLE Notify Characteristic `7a0f1003-1b55-4e2a-9c2e-9a6b9f3a2c10`
-
-## Sicherheit
-Der PIN wird nicht auf dem Kundendisplay gespeichert.
-Im Docker-Backend wird er mit scrypt und Salt gespeichert. Im lokalen App-Datenspeicher
-wird er nur als gesalzener Hash gespeichert.
+Bei einer normalen Kartenzahlung mit PIN-Pflicht wird vor korrekter PIN-Prüfung
+nichts abgebucht. Ein falscher PIN verändert Guthaben und Verkauf nicht.

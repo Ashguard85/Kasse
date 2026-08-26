@@ -1,23 +1,56 @@
-# Kassenschublade – KinderKasse 2.7.0
+# KinderKasse Kassenschublade – 2.7.1
 
-Hardware-Minimalaufbau:
+Die Kassenschublade ist vollständig optional.
+
+Firmware:
+`devices/KinderKasse-Drawer-ESP32-C3-v1.0.0.zip`
+
+## Minimalhardware
+
 - ESP32-C3 Super Mini
 - 5-V-Servo, empfohlen MG90S
 - USB-C / 5-V-Versorgung
-- empfohlen 470–1000 µF Kondensator am Servo
+- empfohlen 470–1000 µF Kondensator nahe am Servo
 
-Die Mechanik/Verriegelung bleibt frei.
+Mechanik und Verriegelung können frei selbst gebaut werden.
 
-Einstellungen → Kassenschublade:
+## KinderKasse-Einstellungen
+
+**Einstellungen → Kassenschublade**
+
 - Kassenschublade aktivieren
-- Nach erfolgreicher Barzahlung öffnen
+- nach erfolgreicher Barzahlung automatisch öffnen
 
-Docker/Server:
-Der ESP32 pollt `/api/drawer/command` über WLAN. Cloudflare Service Token kann in
-der Drawer-Firmware hinterlegt werden.
+Ist die Funktion deaktiviert, verhält sich KinderKasse exakt wie ohne
+Kassenschublade.
 
-Lokale APK:
-Einmal `KasseDrawer` per BLE verbinden. Danach Auto-Reconnect.
+## Docker / Server
 
-Der OPEN-Befehl wird erst nach erfolgreicher Speicherung einer Barzahlung ausgelöst.
-Die Schublade ist optional; Verbindungsfehler ändern den Verkauf nicht.
+Der ESP32-C3 verbindet sich per WLAN und fragt ab:
+
+`/api/drawer/command`
+
+Cloudflare Access Service Token kann in der Firmware konfiguriert werden.
+
+## Lokale APK
+
+BLE-Gerätename:
+`KasseDrawer`
+
+Service:
+`7a0f2001-1b55-4e2a-9c2e-9a6b9f3a2c10`
+
+Command:
+`7a0f2002-1b55-4e2a-9c2e-9a6b9f3a2c10`
+
+Einmal in den Einstellungen verbinden, danach Auto-Reconnect.
+
+## Sicherheits-/Ablauflogik
+
+Der Öffnungsbefehl wird erst gesendet, wenn die Barzahlung erfolgreich in der
+KinderKasse gespeichert wurde.
+
+Wenn die Schublade nicht erreichbar ist:
+- Verkauf bleibt gespeichert
+- Kasse bleibt bedienbar
+- keine Pflicht zur angeschlossenen Schublade
