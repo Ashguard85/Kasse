@@ -64,6 +64,8 @@ Wichtig:
 KinderKasse unterstützt mehrere Profile. Pro Profil können unter anderem Artikel,
 Design, Zahlungsarten und Anzeigeeinstellungen getrennt verwaltet werden.
 
+Für das Profil-Design stehen mehrere Presets zur Verfügung, darunter **Bier & Cocktail Bar** mit dunklem Petrol, Messing-Akzent und dunklen Flächen.
+
 Typischer Ablauf:
 1. Profil auswählen.
 2. Artikel in den Warenkorb legen.
@@ -212,6 +214,25 @@ erfolgreicher Barzahlung automatisch öffnet.
 
 Die ESP32-C3-Schubladenbox kommuniziert unabhängig von NFC-Box und Kundendisplay.
 Ein Ausfall der Schublade darf den eigentlichen Kassiervorgang nicht blockieren.
+
+---
+
+## Display wach halten
+
+Unter **Einstellungen → Display wach halten** gibt es zwei getrennte Schalter:
+
+- **Kasse wach halten** – standardmäßig aktiviert
+- **Kundendisplay wach halten** – standardmäßig aktiviert
+
+In der Android-APK wird die Displaysperre nativ unterdrückt, solange die jeweilige
+Ansicht aktiv ist. Wird die Option deaktiviert oder zur anderen Ansicht gewechselt,
+gilt wieder die normale Android-Displayeinstellung.
+
+Auf einem Kundendisplay im Browser wird zusätzlich die Screen-Wake-Lock-API
+verwendet. Nach Rückkehr aus dem Hintergrund versucht KinderKasse automatisch,
+die Wachhaltung erneut zu aktivieren. Browser und Betriebssystem können diese
+Funktion einschränken; insbesondere auf iPhone/iPad hängt sie von Safari/iOS und
+einem unterstützten sicheren Web-Kontext ab.
 
 ---
 

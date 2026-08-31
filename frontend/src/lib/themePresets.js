@@ -257,6 +257,23 @@ export const THEME_PRESETS = [
     },
   },
   {
+    id: "bar",
+    name: "Bier & Cocktail Bar",
+    icon: "🍸",
+    description: "Dunkles Petrol, Messing und warme Bar-Atmosphäre",
+    theme: {
+      appearanceMode: "dark",
+      autoContrast: true,
+      primaryColor: "#0f4c5c",
+      primaryDark: "#0b3540",
+      accentColor: "#d6a756",
+      pageBackground: "#14181c",
+      registerBackground: "#1b2126",
+      bannerBackground: "#0f4c5c",
+      bannerTextColor: "#ffffff",
+    },
+  },
+  {
     id: "luxus",
     name: "Luxury Dark",
     icon: "✨",

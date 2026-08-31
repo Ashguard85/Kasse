@@ -2,6 +2,11 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch, getDataMode } from "../lib/api";
 import { useProfile } from "../ProfileContext";
 import styles from "./KundenDisplay.module.css";
+import {
+  getScreenAwakeSettings,
+  installWakeLockRecovery,
+  setScreenAwake,
+} from "../lib/wakeLock";
 
 const LOCAL_SOURCE_KEY = "kasseCustomerDisplayLocalSource";
 
@@ -52,6 +57,18 @@ export default function KundenDisplay() {
   const previousItemSignatureRef = useRef("");
 
   const localMode = getDataMode() === "local";
+
+  useEffect(() => {
+    const cleanupRecovery = installWakeLockRecovery();
+    const apply = () => setScreenAwake(getScreenAwakeSettings().customerDisplay);
+    apply();
+    window.addEventListener("kasse:screen-awake-updated", apply);
+    return () => {
+      window.removeEventListener("kasse:screen-awake-updated", apply);
+      cleanupRecovery();
+      setScreenAwake(false);
+    };
+  }, []);
 
   useEffect(() => {
     let stopped = false;

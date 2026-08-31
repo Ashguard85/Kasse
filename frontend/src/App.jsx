@@ -16,6 +16,11 @@ import { CustomerDisplayBleProvider } from "./CustomerDisplayBleContext";
 import { DrawerProvider } from "./DrawerContext";
 import { apiFetch, getDataMode } from "./lib/api";
 import {
+  getScreenAwakeSettings,
+  installWakeLockRecovery,
+  setScreenAwake,
+} from "./lib/wakeLock";
+import {
   applyServerResetVersion,
   getKioskConfig,
   setKioskLocked,
@@ -97,6 +102,29 @@ function AppShell() {
   const { activeProfile } = useProfile();
   const [kiosk, setKiosk] = useState(() => getKioskConfig());
   const [showUnlock, setShowUnlock] = useState(false);
+  const [locationHash, setLocationHash] = useState(() => String(window.location.hash || ""));
+
+  useEffect(() => {
+    const onHash = () => setLocationHash(String(window.location.hash || ""));
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+
+  useEffect(() => {
+    const cleanupRecovery = installWakeLockRecovery();
+    const apply = () => {
+      const customer = locationHash.startsWith("#/kundendisplay");
+      const settings = getScreenAwakeSettings();
+      setScreenAwake(!customer && settings.register);
+    };
+    apply();
+    window.addEventListener("kasse:screen-awake-updated", apply);
+    return () => {
+      window.removeEventListener("kasse:screen-awake-updated", apply);
+      cleanupRecovery();
+      setScreenAwake(false);
+    };
+  }, [locationHash]);
 
   useEffect(() => {
     const refresh = () => setKiosk(getKioskConfig());
@@ -120,7 +148,7 @@ function AppShell() {
     return () => { cancelled = true; clearInterval(timer); };
   }, []);
 
-  const customerDisplay = String(window.location.hash || "").startsWith("#/kundendisplay");
+  const customerDisplay = locationHash.startsWith("#/kundendisplay");
 
   if (kiosk.locked && !customerDisplay) {
     return (

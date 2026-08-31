@@ -1152,7 +1152,7 @@ app.get("/api/admin/kiosk-reset-version", (req, res) => {
 
 app.get("/api/status", (req, res) => {
   const profile = profileToJson(db.prepare("SELECT * FROM profiles WHERE id = ?").get(getProfileId(req)));
-  res.json({ app: "KinderKasse", version: "2.8.1", profile });
+  res.json({ app: "KinderKasse", version: "2.8.3", profile });
 });
 
 app.listen(PORT, () => console.log(`Kasse backend running on :${PORT}`));

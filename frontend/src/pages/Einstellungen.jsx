@@ -26,6 +26,10 @@ import { useCustomerDisplayBle } from "../CustomerDisplayBleContext";
 import { useDrawer } from "../DrawerContext";
 import { getLocalDisplayServerInfo, startLocalDisplayServer } from "../lib/localDisplayServer";
 import {
+  getScreenAwakeSettings,
+  setScreenAwakeSettings,
+} from "../lib/wakeLock";
+import {
   configureKiosk,
   getKioskConfig,
   removeKioskConfig,
@@ -92,6 +96,9 @@ export default function Einstellungen() {
   const [kioskPinConfirm, setKioskPinConfirm] = useState("");
   const [kioskCurrentPin, setKioskCurrentPin] = useState("");
   const [recoveryCode, setRecoveryCode] = useState("");
+  const initialAwake = getScreenAwakeSettings();
+  const [keepRegisterAwake, setKeepRegisterAwake] = useState(initialAwake.register);
+  const [keepCustomerDisplayAwake, setKeepCustomerDisplayAwake] = useState(initialAwake.customerDisplay);
 
   const preview = useMemo(() => getThemeRuntime({ ...DEFAULT_THEME, ...theme }), [theme]);
   const contrastChecks = useMemo(() => getThemeChecks({ ...DEFAULT_THEME, ...theme }), [theme]);
@@ -279,6 +286,16 @@ export default function Einstellungen() {
     } catch {
       showMsg("Kassenschublade konnte nicht gespeichert werden", "err");
     }
+  };
+
+  const saveScreenAwake = () => {
+    const saved = setScreenAwakeSettings({
+      register: keepRegisterAwake,
+      customerDisplay: keepCustomerDisplayAwake,
+    });
+    setKeepRegisterAwake(saved.register);
+    setKeepCustomerDisplayAwake(saved.customerDisplay);
+    showMsg("Display-Wachhaltung gespeichert ✓");
   };
 
   const savePayments = async () => {
@@ -801,6 +818,39 @@ export default function Einstellungen() {
         </div>
 
         <button className={styles.saveBtn} onClick={savePayments} disabled={!activeCount || loading}>Zahlungsmethoden speichern</button>
+
+        <div className={styles.settingsDivider} />
+        <h2 className={styles.sectionTitle}>💡 Display wach halten</h2>
+        <div className={styles.serverBox}>
+          <h2>Automatische Displaysperre verhindern</h2>
+          <p>Diese Einstellung gilt nur für dieses Gerät bzw. diesen Browser. Beide Optionen sind standardmäßig aktiviert.</p>
+
+          <div className={styles.methodRow}>
+            <div className={styles.methodIcon}>🛒</div>
+            <div className={styles.methodInfo}>
+              <div className={styles.methodLabel}>Kasse wach halten</div>
+              <div className={styles.methodDesc}>Verhindert das Ausschalten des Displays, solange die normale Kassen-App geöffnet ist.</div>
+            </div>
+            <button className={`${styles.toggle} ${keepRegisterAwake ? styles.toggleOn : styles.toggleOff}`} onClick={() => setKeepRegisterAwake((v) => !v)}>
+              <span className={styles.toggleKnob} />
+            </button>
+          </div>
+
+          <div className={styles.methodRow}>
+            <div className={styles.methodIcon}>📺</div>
+            <div className={styles.methodInfo}>
+              <div className={styles.methodLabel}>Kundendisplay wach halten</div>
+              <div className={styles.methodDesc}>Hält ein zweites Tablet oder Handy möglichst dauerhaft aktiv. Im Browser wird die Screen-Wake-Lock-Funktion verwendet, soweit das Betriebssystem sie zulässt.</div>
+            </div>
+            <button className={`${styles.toggle} ${keepCustomerDisplayAwake ? styles.toggleOn : styles.toggleOff}`} onClick={() => setKeepCustomerDisplayAwake((v) => !v)}>
+              <span className={styles.toggleKnob} />
+            </button>
+          </div>
+
+          <div className={styles.serverActions}>
+            <button onClick={saveScreenAwake}>Display-Einstellungen speichern</button>
+          </div>
+        </div>
 
         <div className={styles.settingsDivider} />
         <h2 className={styles.sectionTitle}>🔐 Kassenmodus dieses Geräts</h2>
