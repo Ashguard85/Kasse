@@ -246,64 +246,225 @@ Den Kassenmodus-PIN getrennt vom Zahlungs-PIN der Kunden behandeln.
 
 ---
 
-## 10. ESP32-Geräte
+## 10. ESP32-Geräte – Arduino IDE
 
-Alle Firmware-Projekte liegen direkt im Ordner `devices/` und sind **nicht**
-zusätzlich als ZIP verpackt:
+Alle ESP32-Geräte sind für die **Arduino IDE 2.x** vorbereitet. PlatformIO wird für
+die KinderKasse-Geräte nicht mehr benötigt. Jeder Sketch liegt in einem Ordner,
+dessen Name exakt zur Haupt-`.ino` passt, damit er direkt in Arduino geöffnet
+werden kann.
 
 ```text
 devices/
 ├── nfc-box/
+│   ├── KinderKasseNFC_PN532/
+│   │   └── KinderKasseNFC_PN532.ino
+│   └── KinderKasseNFC_RC522/
+│       └── KinderKasseNFC_RC522.ino
 ├── display-box/
+│   └── KinderKasseDisplay/
+│       └── KinderKasseDisplay.ino
 └── drawer-box/
+    └── KinderKasseDrawer/
+        └── KinderKasseDrawer.ino
 ```
 
-### NFC-Box
+### Arduino IDE vorbereiten
 
-`devices/nfc-box/`
+1. Arduino IDE 2.x installieren.
+2. Im Boardverwalter **esp32 by Espressif Systems** installieren.
+3. Den gewünschten Geräteordner öffnen bzw. die darin liegende `.ino` doppelklicken.
+4. Die unten genannten Libraries über **Sketch → Bibliothek einbinden → Bibliotheken verwalten** installieren.
+5. Board und COM-Port unter **Werkzeuge** auswählen.
+6. Zuerst **Überprüfen**, danach **Hochladen**.
+7. Für Diagnose den **Seriellen Monitor mit 115200 Baud** öffnen.
+
+### NFC-Box – PN532
+
+Sketch:
+
+```text
+devices/nfc-box/KinderKasseNFC_PN532/KinderKasseNFC_PN532.ino
+```
 
 BLE-Gerätename: `KasseNFC`
 
-Die NFC-Box liest Karten-UIDs und übergibt sie an KinderKasse. Sie kann für
-Zahlungen und bei leerem Warenkorb zum Öffnen des Kunden-Self-Service verwendet
-werden.
+Benötigte Library:
 
-### Kundendisplay
+- **Adafruit PN532**
 
-`devices/display-box/`
+Die Pinbelegung und Hinweise für den PN532 stehen zusätzlich direkt am Anfang des
+Sketches. Die NFC-Box liest Karten-UIDs und sendet sie per BLE an KinderKasse.
 
+### NFC-Box – RC522
+
+Sketch:
+
+```text
+devices/nfc-box/KinderKasseNFC_RC522/KinderKasseNFC_RC522.ino
+```
+
+BLE-Gerätename: `KasseNFC`
+
+Die RC522-Variante ist eine Alternative zur PN532-Box. Pinbelegung und benötigte
+Library stehen direkt im Sketch.
+
+### Kundendisplay – Waveshare ESP32-S3 Touch LCD 4.3"
+
+Sketch:
+
+```text
+devices/display-box/KinderKasseDisplay/KinderKasseDisplay.ino
+```
+
+Firmware: `1.2.3`  
 BLE-Gerätename: `KasseDisplay`
 
-Das Projekt ist für das ESP32-S3-Touchdisplay vorgesehen. Die Konfiguration und
-Build-Abhängigkeiten stehen direkt im Firmware-Projekt (`platformio.ini` und
-Quellcode).
+Vorgesehen für **Waveshare ESP32-S3-Touch-LCD-4.3, 800 × 480**.
 
-### Kassenschubladenbox
+Benötigte Libraries im Arduino-Bibliotheksverwalter:
 
-`devices/drawer-box/`
+- **GFX Library for Arduino** (`Arduino_GFX_Library`)
+- **NimBLE-Arduino**
+- **WiFiManager**
+- **ArduinoJson**
 
+Empfohlene Arduino-Einstellungen:
+
+```text
+Board:              ESP32S3 Dev Module
+Flash Size:         16MB
+PSRAM:              OPI PSRAM
+USB CDC On Boot:    Enabled
+Partition Scheme:   Huge APP
+Flash Mode:         QIO
+```
+
+Unter Windows 11 erscheint das Board nach erfolgreicher USB-Erkennung als
+COM-Port. Das Waveshare-Board kann über den CH343-USB-UART angeschlossen sein;
+wenn der COM-Port bereits sichtbar ist, ist kein zusätzlicher Treiber nötig.
+
+Nach dem Flashen startet das Display als `KasseDisplay`. Es kann entweder:
+
+- per **BLE mit der lokalen Android-Kasse**, oder
+- per **WLAN mit der Docker-Kasse**
+
+arbeiten. Ab Firmware **1.2.3** blockiert die WLAN-Einrichtung den Start nicht mehr.
+BLE wird sofort gestartet und das Display zeigt anschließend seinen Verbindungsstatus.
+Gespeicherte WLAN-Zugangsdaten werden zunächst im Hintergrund ausprobiert. Wenn nach
+ca. 5 Sekunden keine Verbindung besteht, startet parallel das WLAN:
+
+```text
+KinderKasse-Display-Setup
+```
+
+Auf dem Display erscheint dann ebenfalls **„WLAN-Setup aktiv“** und der Name dieses
+Netzes. Mit Handy oder Notebook mit diesem WLAN verbinden und das WiFiManager-Portal
+öffnen. Dort WLAN und **KinderKasse Server URL** eintragen. Für geschützte Docker-
+Installationen können zusätzlich Cloudflare-Access-Client-ID und -Secret gespeichert
+werden. Während das Setup-Portal offen ist, bleibt BLE weiterhin funktionsfähig.
+
+Für die lokale Android-Kasse ist keine Docker-Server-URL erforderlich: Sobald die
+Kasse per BLE Daten an `KasseDisplay` sendet, wechselt die Anzeige auf den normalen
+Kundenbildschirm.
+
+Wenn weder **„BLE bereit“** noch **„WLAN wird verbunden …“** erscheint, seriellen
+Monitor auf **115200 Baud** öffnen und Reset drücken. Wenn das Setup-WLAN nicht auf
+dem Handy sichtbar ist, mindestens 5 Sekunden warten und auf dem Display prüfen, ob
+**„WLAN-Setup aktiv“** steht.
+
+### Kassenschubladenbox – ESP32-C3 + SG90
+
+Sketch:
+
+```text
+devices/drawer-box/KinderKasseDrawer/KinderKasseDrawer.ino
+```
+
+Firmware: `1.0.1`  
 BLE-Gerätename: `KasseDrawer`
 
-Die Box steuert den Öffnungsimpuls der Kassenschublade und kann optional nach
-Barzahlungen angesprochen werden.
+Benötigte Libraries:
 
-### Firmware bauen
+- **NimBLE-Arduino**
+- **WiFiManager**
+- **ESP32Servo**
 
-Die ESP32-Projekte sind als PlatformIO-Projekte abgelegt. Beispiel:
+Für einen ESP32-C3 SuperMini in Arduino IDE **ESP32C3 Dev Module** wählen.
 
-```bash
-cd devices/display-box
-pio run
+#### SG90 verdrahten
+
+```text
+5-V-Versorgung +  ───── ESP32-C3 5V
+                  └──── SG90 rot
+
+GND ─────────────────── ESP32-C3 GND
+ └───────────────────── SG90 braun/schwarz
+
+ESP32 GPIO4 ─────────── SG90 orange/gelb (Signal)
+
+470–1000 µF Elko:
++ an 5 V
+- an GND
+möglichst nahe am Servo
 ```
 
-Flashen:
+Den SG90 **nicht am 3,3-V-Ausgang** des ESP32 betreiben. Servo und ESP32 müssen eine
+gemeinsame Masse haben. Für einen einzelnen SG90 ist kein Motortreiber oder Relais
+notwendig.
 
-```bash
-pio run -t upload
+#### Winkel an den Mechanismus anpassen
+
+Direkt am Anfang von `KinderKasseDrawer.ino` stehen die drei wichtigen Werte:
+
+```cpp
+static const int SERVO_PIN = 4;
+static const int SERVO_CLOSED_DEG = 0;
+static const int SERVO_OPEN_DEG = 40;
+static const int OPEN_HOLD_MS = 400;
 ```
 
-Vor dem Flashen das korrekte Board, den seriellen Port und die jeweilige
-Hardwareverdrahtung prüfen.
+- `SERVO_CLOSED_DEG`: verriegelte Ruhestellung
+- `SERVO_OPEN_DEG`: Winkel zum Entriegeln
+- `OPEN_HOLD_MS`: wie lange die Entriegelungsposition gehalten wird
+
+Beispiel für eine Mechanik, die etwas mehr Weg benötigt:
+
+```cpp
+static const int SERVO_CLOSED_DEG = 15;
+static const int SERVO_OPEN_DEG = 55;
+static const int OPEN_HOLD_MS = 500;
+```
+
+**Erster Test:** Servoarm noch nicht fest mit dem Riegel verbinden. Zuerst kleine
+Winkel testen und beobachten, in welche Richtung der Servo fährt. Erst wenn
+`CLOSED` und `OPEN` sicher passen, den Arm montieren. Der Servo darf in keiner
+Position dauerhaft gegen einen mechanischen Anschlag drücken oder stark brummen.
+
+Die Kasse sendet nur den Befehl `OPEN`. Die mechanischen Winkel bleiben deshalb
+vollständig in der ESP32-Firmware einstellbar und müssen in KinderKasse nicht
+geändert werden.
+
+Die Drawer-Box unterstützt beide Betriebsarten:
+
+- **Lokale Android-Kasse:** BLE `KasseDrawer`
+- **Docker:** WLAN, Abruf über `/api/drawer/command`
+
+Beim ersten Kontakt im Docker-Modus wird nur der aktuelle Befehlsstand
+synchronisiert. Dadurch wird nach einem ESP-Neustart kein alter Öffnungsbefehl erneut
+ausgeführt.
+
+### Firmware aktualisieren
+
+Bei allen Geräten gilt:
+
+1. Passenden Arduino-Sketch öffnen.
+2. Richtiges ESP32-Board und COM-Port wählen.
+3. **Überprüfen** klicken.
+4. Erst bei erfolgreicher Kompilierung **Hochladen**.
+5. Nach Upload seriellen Monitor auf **115200 Baud** öffnen.
+
+Die BLE-Namen und UUIDs sind auf die KinderKasse abgestimmt. Diese Werte nicht
+ändern, sofern nicht gleichzeitig die KinderKasse-Software angepasst wird.
 
 ---
 
