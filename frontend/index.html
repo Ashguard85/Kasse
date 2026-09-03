@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#00b8b8" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Kasse" />
+
+    <!-- PWA Manifest -->
+    <!-- crossorigin="use-credentials": ohne das schickt Chrome beim Laden
+         des Manifests keine Cookies mit. Hinter Cloudflare Access bekommt
+         Chrome dann statt JSON die Login-Seite zurück und erkennt die App
+         deshalb nicht als installierbare PWA (nur "Zur Startseite
+         hinzufügen" statt "App installieren"). -->
+    <link rel="manifest" href="/manifest.json" crossorigin="use-credentials" />
+    <link rel="icon" href="/icon-192.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <title>Kasse 🛒</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet" />
+    <style>
+      @media (orientation: portrait) {
+        body::before {
+          content: "🔄 Bitte das Tablet drehen";
+          position: fixed; inset: 0; z-index: 9999;
+          background: #1a7a3c; color: white;
+          display: flex; align-items: center; justify-content: center;
+          font-size: 22px; font-family: sans-serif; font-weight: 800;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+    <script>
+      // Landscape lock
+      if (screen.orientation && screen.orientation.lock) {
+        screen.orientation.lock('landscape').catch(() => {});
+      }
+      // Service Worker registrieren
+      // Erzwingt ein Update, falls eine ältere (fehlerhafte) SW-Version im
+      // Browser-Cache hängt — wichtig nach dem Fix für Cloudflare Access,
+      // da alte Service-Worker-Versionen sonst weiter aktiv bleiben können.
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/sw.js').then(reg => {
+          console.log('SW registered:', reg.scope);
+          reg.update(); // sofort auf neue Version prüfen
+        }).catch(err => {
+          console.log('SW registration failed:', err);
+        });
+      }
+    </script>
+  </body>
+</html>
