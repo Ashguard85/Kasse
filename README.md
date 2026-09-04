@@ -177,8 +177,13 @@ angezeigte lokale Adresse verwenden. Der lokale Displayserver nutzt Port `3890`.
 
 ### ESP32-S3 Touchdisplay
 
-Das ESP32-S3-Display kann je nach Betriebsart über WLAN/Server oder BLE mit der
-Kasse kommunizieren. Es unterstützt:
+Das ESP32-S3-Display arbeitet ab Firmware **1.4.0 ausschließlich per BLE** als
+`KasseDisplay`. Das gilt sowohl im lokalen Datenmodus als auch im Docker-/Servermodus.
+Im Servermodus holt der aktive KinderKasse-Client die Kassendaten von Docker und
+überträgt den fertigen Displayzustand direkt per BLE an den ESP32. Der ESP32 selbst
+benötigt deshalb weder WLAN noch Server-URL noch Cloudflare-Zugangsdaten.
+
+Es unterstützt:
 - Warenkorb und Summe
 - Zahlungsstatus
 - PIN-Eingabe per Touch
@@ -186,11 +191,8 @@ Kasse kommunizieren. Es unterstützt:
 - Guthabenanzeige
 - PIN aktivieren/ändern/deaktivieren
 
-Der PIN wird nicht dauerhaft auf dem Displaygerät gespeichert.
-
-Hinweis zur PIN-Verwaltung: Der Rückkanal über Docker/Server überträgt neben der
-Aktion auch aktuellen und neuen PIN vollständig an KinderKasse. Dadurch funktionieren
-PIN aktivieren, ändern und deaktivieren auch im Serverbetrieb.
+Auch Touch-Rückmeldungen laufen in beiden Datenmodi direkt über BLE zurück an den
+aktiven KinderKasse-Client. Der PIN wird nicht dauerhaft auf dem Displaygerät gespeichert.
 
 ---
 
@@ -316,7 +318,7 @@ Sketch:
 devices/display-box/KinderKasseDisplay/KinderKasseDisplay.ino
 ```
 
-Firmware: `1.2.3`  
+Firmware: `1.4.1`  
 BLE-Gerätename: `KasseDisplay`
 
 Vorgesehen für **Waveshare ESP32-S3-Touch-LCD-4.3, 800 × 480**.
@@ -324,9 +326,11 @@ Vorgesehen für **Waveshare ESP32-S3-Touch-LCD-4.3, 800 × 480**.
 Benötigte Libraries im Arduino-Bibliotheksverwalter:
 
 - **GFX Library for Arduino** (`Arduino_GFX_Library`)
-- **NimBLE-Arduino**
-- **WiFiManager**
 - **ArduinoJson**
+- BLE kommt aus dem **ESP32 Board-Paket**; keine separate NimBLE-Arduino-Library nötig
+
+Nicht mehr benötigt werden WiFiManager, ESP32_Display_Panel oder HTTP-/Cloudflare-
+Bibliotheken für das Display.
 
 Empfohlene Arduino-Einstellungen:
 
@@ -334,43 +338,31 @@ Empfohlene Arduino-Einstellungen:
 Board:              ESP32S3 Dev Module
 Flash Size:         16MB
 PSRAM:              OPI PSRAM
-USB CDC On Boot:    Enabled
+USB CDC On Boot:    Disabled
 Partition Scheme:   Huge APP
 Flash Mode:         QIO
 ```
 
-Unter Windows 11 erscheint das Board nach erfolgreicher USB-Erkennung als
-COM-Port. Das Waveshare-Board kann über den CH343-USB-UART angeschlossen sein;
-wenn der COM-Port bereits sichtbar ist, ist kein zusätzlicher Treiber nötig.
+Nach dem Flashen startet das Display direkt als BLE-Gerät `KasseDisplay`. Es gibt
+**kein Setup-WLAN mehr**. In KinderKasse unter **Einstellungen → Kundenanzeige** die
+ESP32 Display-Box auswählen und per BLE verbinden. Diese direkte BLE-Verbindung wird
+sowohl im lokalen Modus als auch im Docker-/Servermodus verwendet.
 
-Nach dem Flashen startet das Display als `KasseDisplay`. Es kann entweder:
+Der Docker-Container selbst benötigt keinen Bluetooth-Adapter. Entscheidend ist der
+aktive KinderKasse-Client: Die Android-App verwendet natives BLE; kompatible Browser
+können Web Bluetooth verwenden. Im Servermodus bleiben die Daten auf Docker, aber der
+Client reicht den aktuellen Warenkorb/Status direkt per BLE an das Display weiter.
 
-- per **BLE mit der lokalen Android-Kasse**, oder
-- per **WLAN mit der Docker-Kasse**
+Firmware **1.4.1** basiert beim Touch auf dem erfolgreich laufenden 1.3.5-Pfad:
+GT911 direkt über Arduino `Wire`, SDA GPIO8, SCL GPIO9, IRQ GPIO4 und Reset über
+CH422G EXIO1. Das Display-Rendering bleibt im 800×480-RGB565-PSRAM-Canvas und wird nur
+bei sichtbaren Zustandsänderungen geflusht.
 
-arbeiten. Ab Firmware **1.2.3** blockiert die WLAN-Einrichtung den Start nicht mehr.
-BLE wird sofort gestartet und das Display zeigt anschließend seinen Verbindungsstatus.
-Gespeicherte WLAN-Zugangsdaten werden zunächst im Hintergrund ausprobiert. Wenn nach
-ca. 5 Sekunden keine Verbindung besteht, startet parallel das WLAN:
+Die obere linke Ecke kann etwa fünf Sekunden gehalten werden, um Display und BLE neu
+zu starten. Es werden dabei keine Netzwerkdaten gelöscht, weil das Display keine
+Netzwerkkonfiguration mehr besitzt.
 
-```text
-KinderKasse-Display-Setup
-```
-
-Auf dem Display erscheint dann ebenfalls **„WLAN-Setup aktiv“** und der Name dieses
-Netzes. Mit Handy oder Notebook mit diesem WLAN verbinden und das WiFiManager-Portal
-öffnen. Dort WLAN und **KinderKasse Server URL** eintragen. Für geschützte Docker-
-Installationen können zusätzlich Cloudflare-Access-Client-ID und -Secret gespeichert
-werden. Während das Setup-Portal offen ist, bleibt BLE weiterhin funktionsfähig.
-
-Für die lokale Android-Kasse ist keine Docker-Server-URL erforderlich: Sobald die
-Kasse per BLE Daten an `KasseDisplay` sendet, wechselt die Anzeige auf den normalen
-Kundenbildschirm.
-
-Wenn weder **„BLE bereit“** noch **„WLAN wird verbunden …“** erscheint, seriellen
-Monitor auf **115200 Baud** öffnen und Reset drücken. Wenn das Setup-WLAN nicht auf
-dem Handy sichtbar ist, mindestens 5 Sekunden warten und auf dem Display prüfen, ob
-**„WLAN-Setup aktiv“** steht.
+Weitere Details stehen in `devices/display-box/README.md`.
 
 ### Kassenschubladenbox – ESP32-C3 + SG90
 

@@ -747,7 +747,7 @@ export default function Einstellungen() {
               onClick={() => setCustomerDisplayType("esp32")}
             >
               <strong>📟 ESP32 Display-Box</strong>
-              <span>Servermodus: WLAN/Cloudflare · Lokaler APK-Modus: BLE</span>
+              <span>BLE in lokalem Modus und Docker-/Servermodus</span>
             </button>
             <button
               className={`${styles.displayTypeCard} ${customerDisplayType === "device" ? styles.displayTypeActive : ""}`}
@@ -771,13 +771,18 @@ export default function Einstellungen() {
 
           {customerDisplayType === "esp32" && (
             <>
-              <p><strong>ESP32:</strong> Im Docker-/Servermodus liest die Box automatisch <code>/api/customer-display</code> per WLAN. Im lokalen APK-Modus wird sie per BLE als <code>KasseDisplay</code> verbunden.</p>
-              {displayBle.supported && (
+              <p><strong>ESP32:</strong> Die Display-Box arbeitet ausschließlich per BLE als <code>KasseDisplay</code>. Das gilt im lokalen Datenmodus und im Docker-/Servermodus. Im Servermodus holt die KinderKasse-App die Daten von Docker und sendet den aktuellen Anzeigestand direkt per BLE an den ESP32; der ESP32 selbst benötigt kein WLAN und keine Cloudflare-Zugangsdaten.</p>
+              {displayBle.supported ? (
                 <div className={styles.serverActions}>
                   <button onClick={() => displayBle.connect(true)} disabled={displayBle.status === "connecting"}>
                     {displayBle.status === "connected" ? "✅ BLE-Display verbunden" : displayBle.status === "connecting" ? "Suche BLE-Display …" : "📟 ESP32 per BLE verbinden"}
                   </button>
+                  {displayBle.status === "connected" && (
+                    <button className={styles.secondaryBtn} onClick={() => displayBle.disconnect()}>BLE trennen</button>
+                  )}
                 </div>
+              ) : (
+                <p className={styles.helpText}>Auf diesem Gerät/Browser ist keine unterstützte BLE-Schnittstelle verfügbar. In der Android-App funktioniert BLE direkt; kompatible Browser können Web Bluetooth verwenden.</p>
               )}
             </>
           )}

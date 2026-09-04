@@ -3,10 +3,9 @@ import {
   connectCustomerDisplay,
   disconnectCustomerDisplay,
   getCustomerDisplayBleState,
-  isNativeDisplayBleAvailable,
+  isCustomerDisplayBleAvailable,
   sendCustomerDisplayState,
 } from "./lib/customerDisplayBle";
-import { getDataMode } from "./lib/api";
 
 const Ctx = createContext(null);
 
@@ -16,7 +15,7 @@ export function CustomerDisplayBleProvider({ children }) {
   const inputQueueRef = useRef([]);
 
   const connect = useCallback(async (allowScan = false) => {
-    if (!isNativeDisplayBleAvailable()) {
+    if (!isCustomerDisplayBleAvailable()) {
       setStatus("unsupported");
       return false;
     }
@@ -41,7 +40,6 @@ export function CustomerDisplayBleProvider({ children }) {
   }, []);
 
   const send = useCallback(async (payload) => {
-    if (getDataMode() !== "local") return false;
     if (status !== "connected") {
       const ok = await connect(false);
       if (!ok) return false;
@@ -56,9 +54,9 @@ export function CustomerDisplayBleProvider({ children }) {
   }, [connect, status]);
 
   useEffect(() => {
-    if (!isNativeDisplayBleAvailable()) return undefined;
+    if (!isCustomerDisplayBleAvailable()) return undefined;
     const auto = () => {
-      if (getDataMode() === "local" && status !== "connected" && status !== "connecting") connect(false);
+      if (status !== "connected" && status !== "connecting") connect(false);
     };
     const timers = [700, 2500, 6000].map((ms) => window.setTimeout(auto, ms));
     retryRef.current = window.setInterval(auto, 7000);
@@ -70,7 +68,7 @@ export function CustomerDisplayBleProvider({ children }) {
 
   const consumeInput = useCallback(() => inputQueueRef.current.shift() || null, []);
 
-  return <Ctx.Provider value={{ status, connect, disconnect, send, consumeInput, supported: isNativeDisplayBleAvailable() }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ status, connect, disconnect, send, consumeInput, supported: isCustomerDisplayBleAvailable() }}>{children}</Ctx.Provider>;
 }
 
 export function useCustomerDisplayBle() {

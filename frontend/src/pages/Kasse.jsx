@@ -257,14 +257,21 @@ export default function Kasse() {
     };
 
     const timer = setTimeout(() => {
+      // ESP32-Display: immer direkt per BLE vom aktiven Kassenclient versorgen.
+      // Das gilt im lokalen Datenmodus genauso wie im Docker-/Servermodus.
+      // Docker bleibt nur die Datenquelle der Kasse; der ESP32 braucht selbst
+      // weder WLAN noch Zugriff auf den Docker-Server.
+      if (customerDisplayType === "esp32") {
+        customerDisplayBle.send(payload).catch(() => {});
+        return;
+      }
+
+      // Zweites Handy/Tablet bleibt unverändert: lokal über den kleinen
+      // Tablet-Displayserver, im Servermodus über den Docker-Endpunkt.
       if (getDataMode() === "local") {
-        if (customerDisplayType === "device") {
-          startLocalDisplayServer()
-            .then(() => publishLocalDisplayState(payload))
-            .catch(() => {});
-        } else {
-          customerDisplayBle.send(payload).catch(() => {});
-        }
+        startLocalDisplayServer()
+          .then(() => publishLocalDisplayState(payload))
+          .catch(() => {});
         return;
       }
       apiFetch("/api/customer-display", {
@@ -276,9 +283,9 @@ export default function Kasse() {
     return () => clearTimeout(timer);
   }, [cart, total, phase, payMode, cashTendered, customerDisplayEnabled, customerDisplayType, errorMsg, displaySale, activeProfile?.id, customerDisplayBle, pinCustomerName, pinInvalid, accountCustomer, accountMessage, accountError]);
 
-  // Kundenterminal-Rückkanal: PIN kommt bei Docker über die API und bei einem
-  // lokalen Tablet über den nativen Displayserver. BLE-PINs werden im
-  // CustomerDisplayBleContext als Eingabeereignis bereitgestellt.
+  // Kundenterminal-Rückkanal: Beim ESP32 kommen PIN/Konto-Aktionen immer per
+  // BLE zurück – unabhängig davon, ob die Kasse lokal oder mit Docker arbeitet.
+  // Ein zweites Handy/Tablet nutzt weiterhin API bzw. lokalen Displayserver.
   useEffect(() => {
     if (phase !== "pin" && phase !== "account") return undefined;
     if (phase === "pin" && !pendingPaymentIdentifier) return undefined;
@@ -289,13 +296,13 @@ export default function Kasse() {
     const consume = async () => {
       try {
         let input = null;
-        if (getDataMode() === "server") {
+        if (customerDisplayType === "esp32") {
+          input = customerDisplayBle.consumeInput?.() || null;
+        } else if (getDataMode() === "server") {
           const res = await apiFetch("/api/customer-display/input");
           if (res.ok) input = await res.json();
-        } else if (customerDisplayType === "device") {
-          input = await consumeLocalDisplayInput();
         } else {
-          input = customerDisplayBle.consumeInput?.() || null;
+          input = await consumeLocalDisplayInput();
         }
 
         if (cancelled || !input || (!input.action && !input.pin)) return;
