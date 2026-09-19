@@ -19,7 +19,7 @@ Arduino-Sketch:
 
 `KinderKasseDisplay/KinderKasseDisplay.ino`
 
-Firmware-Version: **1.4.1**
+Firmware-Version: **1.4.3**
 
 Verbindung:
 - **Lokaler Modus:** KinderKasse → BLE → `KasseDisplay`
@@ -104,7 +104,7 @@ Eine klassische Bluetooth-Kopplung in den Android-Systemeinstellungen ist nicht 
 
 ## Touch
 
-Firmware 1.4.1 übernimmt den in Firmware 1.3.5 erfolgreich laufenden Touch-Pfad:
+Firmware 1.4.3 übernimmt weiterhin den in Firmware 1.3.5 erfolgreich laufenden Touch-Pfad:
 - GT911 direkt über Arduino `Wire`
 - I²C: SDA GPIO8, SCL GPIO9, 400 kHz
 - Adressen `0x5D` und `0x14` werden geprüft
@@ -119,13 +119,40 @@ GT911 gefunden bei 0x5D, Product-ID: 911?
 Touch bereit: JA (Adresse 0x5D, Arduino Wire)
 ```
 
-Bei Berührung werden Koordinaten ausgegeben, z. B.:
+Bei Berührung werden Koordinaten ausgegeben. Ab Firmware **1.4.2** wird der GT911 zentral
+nur einmal ausgewertet und arbeitet für die Bedienoberfläche als **Klick-Touch**:
+- Finger aufsetzen → genau eine Aktion
+- Finger liegen lassen → keine Wiederholung
+- Finger loslassen → Touch wird wieder freigegeben
+- erst ein neuer Fingerkontakt kann die nächste Ziffer oder den nächsten Button auslösen
+
+Im seriellen Monitor sieht das z. B. so aus:
 
 ```text
-Touch: x=325 y=180 raw=325/180 size=... points=1 IRQ=LOW
+Touch KLICK: x=325 y=180
+Touch LOSGELASSEN (GT911)
 ```
 
+Das verhindert insbesondere mehrfach eingetragene PIN-Ziffern beim längeren Berühren einer
+Taste. Die obere linke Ecke bleibt davon ausgenommen und ist weiterhin als Long-Press-Service-
+Geste reserviert.
+
 Die obere linke Ecke ist als Service-Geste reserviert: etwa **5 Sekunden halten**, um Display und BLE neu zu starten. Es werden keine WLAN-Daten gelöscht, weil die Firmware keine WLAN-Konfiguration mehr besitzt.
+
+
+**Arduino-IDE-Compile-Fix ab 1.4.3:** `TouchReportType` ist vor der ersten
+Funktionsdefinition deklariert, damit die automatisch erzeugten Arduino-Prototypen den Typ
+kennen. Displaytext wird über `print(String)` ausgegeben; damit wird die von Arduino_GFX
+angebotene `write(uint8_t)`-Signatur korrekt benutzt und die CP437-Umlautkonvertierung bleibt erhalten.
+
+## Umlaute und Sonderzeichen
+
+KinderKasse sendet Namen, Artikel und Meldungen als UTF-8. Die schnelle eingebaute
+Arduino_GFX-Schrift ist CP437-basiert. Firmware **1.4.2** konvertiert die Texte deshalb vor
+der Ausgabe nach CP437. Damit werden insbesondere **ä, ö, ü, Ä, Ö, Ü und ß** korrekt
+dargestellt; zusätzlich werden gängige westeuropäische Akzente unterstützt. Typografische
+Gedankenstriche und Anführungszeichen werden auf displaytaugliches ASCII normalisiert. Dafür
+ist **keine zusätzliche Font-Library** nötig.
 
 ## Funktionen
 
@@ -180,7 +207,7 @@ Beim normalen Hinzufügen eines Artikels sollte überwiegend `Display PARTIAL` e
 
 **Touch reagiert nicht:**
 - seriellen Monitor auf 115200 Baud öffnen
-- beim Tippen müssen `Touch: x=... y=...`-Zeilen erscheinen
+- beim Tippen muss genau einmal `Touch KLICK: x=... y=...` erscheinen; nach dem Loslassen folgt `Touch LOSGELASSEN (...)`
 - bei fehlendem GT911 die I²C-Scan-Ausgabe prüfen
 
 **Display ruckelt:**

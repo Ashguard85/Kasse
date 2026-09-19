@@ -799,7 +799,7 @@ export default function Kasse() {
               backgroundColor: activeProfile.theme?.bannerBackground,
               color: activeProfile.theme?.bannerImageDataUrl ? "#ffffff" : activeProfile.theme?.bannerTextColor,
               backgroundImage: activeProfile.theme?.bannerImageDataUrl
-                ? `linear-gradient(rgba(0,0,0,.38), rgba(0,0,0,.38)), url(${activeProfile.theme.bannerImageDataUrl})`
+                ? `linear-gradient(rgba(0,0,0,.52), rgba(0,0,0,.52)), url(${activeProfile.theme.bannerImageDataUrl})`
                 : "none",
             }}
           >

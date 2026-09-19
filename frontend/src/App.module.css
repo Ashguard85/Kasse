@@ -40,7 +40,7 @@
   font-weight: 900;
   letter-spacing: -0.5px;
   margin-right: 10px;
-  color: var(--yellow);
+  color: var(--accent-on-primary, var(--yellow));
   white-space: nowrap;
   flex: 0 0 auto;
 }
@@ -200,7 +200,7 @@
   font-weight: 800;
   text-align: center;
 }
-.kioskDialog input:focus { outline: none; border-color: var(--green); }
+.kioskDialog input:focus { outline: none; border-color: var(--primary-ui, var(--green)); }
 .kioskPrimary {
   min-height: 48px;
   border-radius: 11px;
@@ -209,6 +209,6 @@
   font-weight: 900;
   font-size: 16px;
 }
-.kioskLink { background: transparent; color: var(--blue, #2563eb); font-weight: 900; }
+.kioskLink { background: transparent; color: var(--link-fg, #2563eb); font-weight: 900; }
 .kioskCancel { background: var(--gray-100); color: var(--gray-700); border-radius: 10px; min-height: 42px; font-weight: 800; }
-.kioskError { padding: 9px; border-radius: 9px; background: var(--red-light, #fee2e2); color: var(--red, #b91c1c); font-weight: 800; }
+.kioskError { padding: 9px; border-radius: 9px; background: var(--red-light, #fee2e2); color: var(--danger-soft-text, var(--red, #b91c1c)); font-weight: 800; }

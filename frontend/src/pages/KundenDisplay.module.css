@@ -30,21 +30,21 @@
 .item div { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 .item strong { font-size: clamp(20px, 3vw, 34px); line-height: 1.1; }
 .item span { font-size: clamp(15px, 2vw, 23px); color: var(--gray-600, #666); font-weight: 700; }
-.item b { font-size: clamp(21px, 3vw, 34px); color: var(--green); white-space: nowrap; }
+.item b { font-size: clamp(21px, 3vw, 34px); color: var(--primary-fg, var(--green)); white-space: nowrap; }
 .summary { background: var(--surface, #fff); border-radius: 22px; padding: 28px; box-shadow: 0 4px 18px rgba(0,0,0,.09); display: flex; flex-direction: column; justify-content: center; text-align: center; gap: 16px; }
 .totalLabel { font-size: clamp(20px, 2.5vw, 30px); font-weight: 900; color: var(--gray-600, #666); letter-spacing: .08em; }
-.total { font-size: clamp(44px, 6vw, 78px); line-height: 1; font-weight: 950; color: var(--green); }
+.total { font-size: clamp(44px, 6vw, 78px); line-height: 1; font-weight: 950; color: var(--primary-fg, var(--green)); }
 .payment { margin-top: 12px; padding-top: 18px; border-top: 3px solid var(--gray-100, #eee); display: flex; flex-direction: column; gap: 9px; font-size: clamp(17px, 2vw, 24px); }
 .payment > strong { font-size: clamp(23px, 3vw, 36px); }
 .cashRow { display: flex; justify-content: space-between; gap: 16px; padding-top: 8px; }
-.cashRow:last-child { color: var(--green); font-size: 1.15em; }
-.success { display: flex; flex-direction: column; gap: 10px; font-size: clamp(50px, 7vw, 90px); color: var(--green); }
+.cashRow:last-child { color: var(--primary-fg, var(--green)); font-size: 1.15em; }
+.success { display: flex; flex-direction: column; gap: 10px; font-size: clamp(50px, 7vw, 90px); color: var(--primary-fg, var(--green)); }
 .success strong { font-size: clamp(28px, 4vw, 48px); }
 .centerMessage { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 12px; padding: 30px; }
 .centerMessage span { font-size: 82px; }
 .centerMessage h2 { font-size: clamp(30px, 5vw, 58px); margin: 0; }
 .centerMessage p { font-size: clamp(17px, 2.5vw, 28px); color: var(--gray-600); max-width: 700px; }
-.offline { color: #b45309; font-weight: 800; font-size: 14px; }
+.offline { color: var(--accent-fg, #b45309); font-weight: 800; font-size: 14px; }
 .exit { position: fixed; right: 10px; bottom: 10px; opacity: .22; width: 44px; height: 44px; border-radius: 50%; font-size: 20px; background: #000; color: #fff; }
 .exit:hover { opacity: .8; }
 @media (max-width: 700px) {
@@ -79,12 +79,12 @@
   background: var(--surface, white);
   color: var(--gray-800);
 }
-.setupPanel input:focus { outline: none; border-color: var(--green); }
+.setupPanel input:focus { outline: none; border-color: var(--primary-ui, var(--green)); }
 .setupPanel button {
   min-height: 52px;
   border-radius: 12px;
   background: var(--green);
-  color: white;
+  color: var(--primary-text, white);
   font-size: 17px;
   font-weight: 900;
 }
@@ -116,11 +116,11 @@
 .pinTerminal h2{margin:0;font-size:clamp(32px,5vw,56px)}
 .pinDots{display:flex;gap:12px;min-height:42px;align-items:center}
 .pinDots span{font-size:26px;color:var(--gray-300)}
-.pinDots .pinDotFilled{color:var(--green)}
-.pinError{padding:9px 14px;border-radius:10px;background:var(--red-light,#fee2e2);color:var(--red,#b91c1c);font-weight:900}
+.pinDots .pinDotFilled{color:var(--primary-fg,var(--green))}
+.pinError{padding:9px 14px;border-radius:10px;background:var(--red-light,#fee2e2);color:var(--danger-soft-text,var(--red,#b91c1c));font-weight:900}
 .pinPad{width:min(420px,92vw);display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
 .pinPad button{min-height:68px;border-radius:14px;background:var(--surface,#fff);color:var(--gray-800);font-size:28px;font-weight:950;box-shadow:0 2px 8px rgba(0,0,0,.1)}
-.pinPad .pinConfirm{background:var(--green);color:#fff}
+.pinPad .pinConfirm{background:var(--green);color:var(--primary-text,#fff)}
 .pinPad .pinConfirm:disabled{opacity:.45}
 .pinCancel{min-height:44px;padding:8px 24px;border-radius:10px;background:var(--gray-200);color:var(--gray-800);font-weight:900}
 
@@ -129,13 +129,13 @@
 .accountTerminal h2{margin:0;font-size:clamp(30px,5vw,54px)}
 .accountBalance{min-width:min(420px,90vw);padding:18px 28px;border-radius:18px;background:var(--surface,#fff);box-shadow:0 4px 18px rgba(0,0,0,.10);display:flex;flex-direction:column;gap:5px}
 .accountBalance span{font-size:18px;color:var(--gray-600);font-weight:800}
-.accountBalance strong{font-size:clamp(34px,6vw,58px);color:var(--green)}
+.accountBalance strong{font-size:clamp(34px,6vw,58px);color:var(--primary-fg,var(--green))}
 .accountActions,.accountForm{width:min(440px,92vw);display:flex;flex-direction:column;gap:10px}
-.accountActions button,.accountForm button{min-height:54px;border-radius:12px;background:var(--green);color:#fff;font-size:17px;font-weight:900}
+.accountActions button,.accountForm button{min-height:54px;border-radius:12px;background:var(--green);color:var(--primary-text,#fff);font-size:17px;font-weight:900}
 .accountForm input{width:100%;padding:14px;border:2px solid var(--gray-200);border-radius:11px;background:var(--surface,#fff);font-size:19px;font-weight:900;text-align:center}
 .accountDanger{background:var(--red,#b91c1c)!important}
 .accountClose{background:var(--gray-200)!important;color:var(--gray-800)!important}
-.accountOk{padding:10px 14px;border-radius:10px;background:var(--green-light,#dcfce7);color:var(--green-dark,#166534);font-weight:900}
+.accountOk{padding:10px 14px;border-radius:10px;background:var(--green-light,#dcfce7);color:var(--primary-soft-text,var(--green-dark,#166534));font-weight:900}
 
 
 /* Kundendisplay 2.8.1: kein Banner, nur schlanker Profilrahmen. */
@@ -143,7 +143,7 @@
   flex: 1;
   min-height: 0;
   margin: 8px;
-  border: 5px solid var(--customer-frame, var(--green));
+  border: 5px solid var(--customer-frame, var(--primary-ui, var(--green)));
   border-radius: 18px;
   overflow: hidden;
   display: flex;
@@ -213,7 +213,7 @@
   gap: 12px;
 }
 .accountStatus span { color: var(--gray-600); font-weight: 800; }
-.accountStatus strong { color: var(--green); }
+.accountStatus strong { color: var(--primary-fg, var(--green)); }
 .accountActions {
   width: 100%;
   margin-top: auto;

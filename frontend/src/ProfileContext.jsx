@@ -13,11 +13,22 @@ function applyTheme(profile) {
   root.style.setProperty("--green", theme.primaryColor);
   root.style.setProperty("--green-dark", theme.primaryDark);
   root.style.setProperty("--green-light", theme.primaryLight);
+  root.style.setProperty("--primary-fg", theme.primaryOnSurface);
+  root.style.setProperty("--primary-ui", theme.primaryUi);
+  root.style.setProperty("--primary-soft-bg", theme.primarySoftBackground);
+  root.style.setProperty("--primary-soft-text", theme.primarySoftText);
   root.style.setProperty("--primary-text", theme.primaryText);
   root.style.setProperty("--primary-text-muted", theme.primaryTextMuted);
   root.style.setProperty("--yellow", theme.accentColor);
   root.style.setProperty("--yellow-dark", theme.accentDark);
   root.style.setProperty("--accent-text", theme.accentText);
+  root.style.setProperty("--accent-on-primary", theme.accentOnPrimary);
+  root.style.setProperty("--accent-fg", theme.accentOnSurface);
+  root.style.setProperty("--accent-ui", theme.accentUi);
+  root.style.setProperty("--danger-fg", theme.dangerOnSurface);
+  root.style.setProperty("--danger-soft-bg", theme.dangerSoftBackground);
+  root.style.setProperty("--danger-soft-text", theme.dangerSoftText);
+  root.style.setProperty("--link-fg", theme.linkOnSurface);
   root.style.setProperty("--app-background", theme.pageBackground);
   root.style.setProperty("--register-background", theme.registerBackground);
   root.style.setProperty("--surface", theme.surface);
@@ -28,8 +39,11 @@ function applyTheme(profile) {
   root.style.setProperty("--gray-50", theme.palette.gray50);
   root.style.setProperty("--gray-100", theme.palette.gray100);
   root.style.setProperty("--gray-200", theme.palette.gray200);
+  root.style.setProperty("--gray-300", theme.palette.gray300);
   root.style.setProperty("--gray-400", theme.palette.gray400);
+  root.style.setProperty("--gray-500", theme.palette.gray500);
   root.style.setProperty("--gray-600", theme.palette.gray600);
+  root.style.setProperty("--gray-700", theme.palette.gray700);
   root.style.setProperty("--gray-800", theme.palette.gray800);
   root.style.setProperty("--red-light", theme.palette.redLight);
 

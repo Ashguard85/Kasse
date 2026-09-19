@@ -34,6 +34,12 @@
     - kompletter Frame nur noch bei Seiten-/Themewechsel oder erzwungenem Neuaufbau
     - semantischer Zustandsvergleich verhindert unnoetige Refreshs
 
+  Bedienung ab 1.4.2 (Compile-Fix 1.4.3):
+    - Touch arbeitet als echter Klick: pro Fingerkontakt maximal eine Aktion
+    - gedrueckt halten wiederholt keine Ziffern oder Buttons
+    - UTF-8-Umlaute werden fuer die eingebaute CP437-Schrift sauber umgesetzt
+      (inkl. ä/ö/ü sowie Ä/Ö/Ü/ß aus BLE-Daten)
+
   Diese Datei ist der Arduino-IDE-Hauptsketch.
 */
 
@@ -49,7 +55,7 @@
 #include <BLE2902.h>
 #include <Wire.h>
 
-static const char *FW_VERSION = "1.4.1";
+static const char *FW_VERSION = "1.4.3";
 static const char *BLE_NAME = "KasseDisplay";
 static const char *SERVICE_UUID = "7a0f1001-1b55-4e2a-9c2e-9a6b9f3a2c10";
 static const char *RX_UUID = "7a0f1002-1b55-4e2a-9c2e-9a6b9f3a2c10";
@@ -75,7 +81,17 @@ String accountCurrentPin, accountNewPin;
 bool pinScreen = false;
 bool accountScreen = false;
 int accountStep = 0; // 0=home,1=current pin,2=new pin,3=confirm,4=disable current
-unsigned long lastTouchMs = 0;
+// Touch wird ab 1.4.2 zentral genau einmal pro loop() ausgewertet.
+// 1.4.3: Arduino-IDE-kompatibler Enum-/Print-Pfad; Klick-Latch bleibt unveraendert.
+// Ein Fingerkontakt erzeugt maximal EINEN Klick. Erst nach dem Loslassen
+// wird die Eingabe wieder scharf. Damit gibt es kein "Maus-Halten" und
+// insbesondere keine mehrfach erfassten PIN-Ziffern mehr.
+static bool touchContactActive = false;
+static bool touchServiceCandidate = false;
+static uint16_t touchDownX = 0, touchDownY = 0;
+static uint16_t touchLastX = 0, touchLastY = 0;
+static unsigned long touchDownAt = 0;
+static unsigned long touchLastReportAt = 0;
 
 // Service-Geste: obere linke Ecke 5 Sekunden gedrueckt halten.
 // Da die Firmware keine WLAN-Konfiguration mehr besitzt, fuehrt die Geste
@@ -83,9 +99,7 @@ unsigned long lastTouchMs = 0;
 static const uint16_t SERVICE_RESTART_X_MAX = 120;
 static const uint16_t SERVICE_RESTART_Y_MAX = 100;
 static const unsigned long SERVICE_RESTART_HOLD_MS = 5000;
-static const unsigned long SERVICE_RESTART_RELEASE_GAP_MS = 700;
-unsigned long serviceRestartHoldStart = 0;
-unsigned long serviceRestartLastSeen = 0;
+static const unsigned long TOUCH_STUCK_RELEASE_MS = 30000;
 bool serviceRestartTriggered = false;
 
 uint16_t bleMessageId = 0;
@@ -127,10 +141,114 @@ struct RenderSnapshot {
   uint32_t accountRightHash=0;
 } rendered;
 
+
+// Muss vor der ersten Funktionsdefinition stehen: Die Arduino-IDE erzeugt
+// automatisch Funktionsprototypen. So ist TouchReportType bereits bekannt,
+// wenn der Prototyp fuer gt911Poll() eingefuegt wird.
+enum TouchReportType : uint8_t {
+  TOUCH_REPORT_NONE=0,
+  TOUCH_REPORT_DOWN=1,
+  TOUCH_REPORT_RELEASE=2
+};
+
 static uint16_t rgb565(uint8_t r,uint8_t g,uint8_t b){return ((r&0xF8)<<8)|((g&0xFC)<<3)|(b>>3);}
 static uint16_t colorHex(const char* s,uint16_t fallback){
   if(!s||s[0]!='#'||strlen(s)<7)return fallback;
   long v=strtol(s+1,nullptr,16); return rgb565((v>>16)&255,(v>>8)&255,v&255);
+}
+
+// Arduino_GFX' klassische Bitmap-Schrift verwendet CP437. KinderKasse sendet
+// Texte dagegen als UTF-8. Diese kleine Konvertierung behaelt die schnelle,
+// gut skalierbare Standardschrift bei und bildet deutsche Umlaute/ß sowie
+// gaengige westeuropaeische Zeichen sauber auf CP437 ab.
+static uint8_t latin1ToCp437(uint8_t latin1){
+  switch(latin1){
+    case 0xC7: return 0x80; // Ç
+    case 0xFC: return 0x81; // ü
+    case 0xE9: return 0x82; // é
+    case 0xE2: return 0x83; // â
+    case 0xE4: return 0x84; // ä
+    case 0xE0: return 0x85; // à
+    case 0xE5: return 0x86; // å
+    case 0xE7: return 0x87; // ç
+    case 0xEA: return 0x88; // ê
+    case 0xEB: return 0x89; // ë
+    case 0xE8: return 0x8A; // è
+    case 0xEF: return 0x8B; // ï
+    case 0xEE: return 0x8C; // î
+    case 0xEC: return 0x8D; // ì
+    case 0xC4: return 0x8E; // Ä
+    case 0xC5: return 0x8F; // Å
+    case 0xC9: return 0x90; // É
+    case 0xE6: return 0x91; // æ
+    case 0xC6: return 0x92; // Æ
+    case 0xF4: return 0x93; // ô
+    case 0xF6: return 0x94; // ö
+    case 0xF2: return 0x95; // ò
+    case 0xFB: return 0x96; // û
+    case 0xF9: return 0x97; // ù
+    case 0xFF: return 0x98; // ÿ
+    case 0xD6: return 0x99; // Ö
+    case 0xDC: return 0x9A; // Ü
+    case 0xE1: return 0xA0; // á
+    case 0xED: return 0xA1; // í
+    case 0xF3: return 0xA2; // ó
+    case 0xFA: return 0xA3; // ú
+    case 0xF1: return 0xA4; // ñ
+    case 0xD1: return 0xA5; // Ñ
+    case 0xDF: return 0xE1; // ß
+    default: return '?';
+  }
+}
+
+static String displayEncode(const String& utf8,uint16_t maxGlyphs=0xFFFF){
+  String out;
+  out.reserve(min((size_t)maxGlyphs,utf8.length()));
+  uint16_t glyphs=0;
+
+  for(size_t i=0;i<utf8.length() && glyphs<maxGlyphs;){
+    uint8_t c=(uint8_t)utf8[i];
+
+    if(c<0x80){
+      out+=(char)c;
+      i++;
+      glyphs++;
+      continue;
+    }
+
+    // UTF-8 U+0080..U+00FF: C2/C3 + Folgebyte -> Latin-1-Codepunkt.
+    if((c==0xC2 || c==0xC3) && i+1<utf8.length()){
+      uint8_t d=(uint8_t)utf8[i+1];
+      if((d&0xC0)==0x80){
+        uint8_t latin1=(c==0xC2)?d:(uint8_t)(d+0x40);
+        // Nicht abbildbare Latin-1-Zeichen werden lesbar als '?' gezeigt.
+        out+=(char)latin1ToCp437(latin1);
+        i+=2;
+        glyphs++;
+        continue;
+      }
+    }
+
+    // Typografische UTF-8-Zeichen auf displayfreundliches ASCII reduzieren.
+    if(c==0xE2 && i+2<utf8.length()){
+      uint8_t d=(uint8_t)utf8[i+1], e=(uint8_t)utf8[i+2];
+      if(d==0x80 && (e==0x93 || e==0x94)){ out+='-'; i+=3; glyphs++; continue; } // – —
+      if(d==0x80 && (e==0x98 || e==0x99)){ out+='\''; i+=3; glyphs++; continue; } // ‘ ’
+      if(d==0x80 && (e==0x9C || e==0x9D)){ out+='"'; i+=3; glyphs++; continue; } // “ ”
+    }
+
+    // Unbekanntes UTF-8-Zeichen als ein einziges '?' ausgeben und die
+    // gesamte Sequenz ueberspringen, damit keine kaputten Folgebytes erscheinen.
+    size_t skip=1;
+    if((c&0xE0)==0xC0) skip=2;
+    else if((c&0xF0)==0xE0) skip=3;
+    else if((c&0xF8)==0xF0) skip=4;
+    if(i+skip>utf8.length()) skip=1;
+    out+='?';
+    i+=skip;
+    glyphs++;
+  }
+  return out;
 }
 
 // Sichtbaren Zustand hashen statt rohe JSON-Strings zu vergleichen.
@@ -416,14 +534,21 @@ static uint32_t accountRightRegionHash(){
   return h;
 }
 
+static void printDisplayText(const String& utf8,uint16_t maxGlyphs=0xFFFF){
+  String encoded=displayEncode(utf8,maxGlyphs);
+  gfx->print(encoded);
+}
+
 void drawCentered(const String& text,int y,uint16_t color,int size){
+  String encoded=displayEncode(text);
   gfx->setTextColor(color); gfx->setTextSize(size);
   int16_t x1,y1; uint16_t w,h;
-  gfx->getTextBounds(text,0,y,&x1,&y1,&w,&h);
-  gfx->setCursor(max(8,(800-(int)w)/2),y); gfx->print(text);
+  gfx->getTextBounds(encoded,0,y,&x1,&y1,&w,&h);
+  gfx->setCursor(max(8,(800-(int)w)/2),y);
+  gfx->print(encoded);
 }
-bool gt911Read(uint16_t &x,uint16_t &y){
-  if(!touchReady || !gt911Address) return false;
+static TouchReportType gt911Poll(uint16_t &x,uint16_t &y){
+  if(!touchReady || !gt911Address) return TOUCH_REPORT_NONE;
 
   uint8_t status=0;
   if(!gt911ReadBytes(0x814E,&status,1)){
@@ -431,16 +556,24 @@ bool gt911Read(uint16_t &x,uint16_t &y){
       lastTouchDiagMs=millis();
       Serial.println("GT911 Status konnte nicht gelesen werden");
     }
-    return false;
+    return TOUCH_REPORT_NONE;
   }
 
   const bool ready=(status&0x80)!=0;
   const uint8_t count=status&0x0F;
-  if(!ready) return false;
+  if(!ready) return TOUCH_REPORT_NONE;
 
-  if(count==0 || count>5){
+  // GT911 meldet das Loslassen als gueltigen Data-Ready-Frame mit 0 Punkten.
+  // Dieser Frame ist fuer die Klick-Sperre entscheidend: erst danach darf
+  // derselbe Button beim naechsten Fingerkontakt erneut ausloesen.
+  if(count==0){
     gt911WriteByte(0x814E,0x00);
-    return false;
+    return TOUCH_REPORT_RELEASE;
+  }
+
+  if(count>5){
+    gt911WriteByte(0x814E,0x00);
+    return TOUCH_REPORT_NONE;
   }
 
   uint8_t data[5*8]={0};
@@ -448,20 +581,15 @@ bool gt911Read(uint16_t &x,uint16_t &y){
   if(!gt911ReadBytes(0x814F,data,bytes)){
     Serial.println("GT911 Punktdaten konnten nicht gelesen werden");
     gt911WriteByte(0x814E,0x00);
-    return false;
+    return TOUCH_REPORT_NONE;
   }
 
-  // Ersten Touchpunkt fuer die Bedienoberflaeche verwenden.
   const uint8_t *point=&data[0];
   uint16_t rawX=((uint16_t)point[2]<<8)|point[1];
   uint16_t rawY=((uint16_t)point[4]<<8)|point[3];
   uint16_t size=((uint16_t)point[6]<<8)|point[5];
-
-  // Erst quittieren, nachdem der komplette Punkt-Frame gelesen wurde.
   gt911WriteByte(0x814E,0x00);
 
-  // Das Original-Waveshare-4.3 meldet 800x480. Falls eine Firmwarevariante
-  // die Achsen als 480x800 liefert, wird das automatisch erkannt.
   if(rawX<800 && rawY<480){
     x=rawX;
     y=rawY;
@@ -473,16 +601,16 @@ bool gt911Read(uint16_t &x,uint16_t &y){
       lastTouchDiagMs=millis();
       Serial.printf("Touch ausserhalb Bereich: rawX=%u rawY=%u\n",rawX,rawY);
     }
-    return false;
+    return TOUCH_REPORT_NONE;
   }
 
-  if(millis()-lastTouchLogMs>200){
+  if(millis()-lastTouchLogMs>250){
     lastTouchLogMs=millis();
-    Serial.printf("Touch: x=%u y=%u raw=%u/%u size=%u points=%u IRQ=%s\n",
+    Serial.printf("Touch Kontakt: x=%u y=%u raw=%u/%u size=%u points=%u IRQ=%s\n",
                   x,y,rawX,rawY,size,count,
                   digitalRead(TOUCH_IRQ_PIN)==LOW?"LOW":"HIGH");
   }
-  return true;
+  return TOUCH_REPORT_DOWN;
 }
 
 void restartDisplayService(){
@@ -494,43 +622,83 @@ void restartDisplayService(){
   ESP.restart();
 }
 
-bool handleServiceRestartPoint(uint16_t x,uint16_t y){
+// Die eigentlichen UI-Handler bekommen nur EINEN Klick pro Fingerkontakt.
+void handlePaymentPinClick(uint16_t x,uint16_t y);
+void handleAccountClick(uint16_t x,uint16_t y);
+
+static bool pointInServiceCorner(uint16_t x,uint16_t y){
+  return x<=SERVICE_RESTART_X_MAX && y<=SERVICE_RESTART_Y_MAX;
+}
+
+static void dispatchTouchClick(uint16_t x,uint16_t y){
+  Serial.printf("Touch KLICK: x=%u y=%u\n",x,y);
+  if(pinScreen) handlePaymentPinClick(x,y);
+  else if(accountScreen) handleAccountClick(x,y);
+  // In der normalen Shop-Ansicht gibt es bewusst keine Kurz-Klick-Aktion.
+}
+
+static void releaseTouchContact(const char *reason){
+  if(!touchContactActive) return;
+  Serial.printf("Touch LOSGELASSEN (%s)\n",reason);
+  touchContactActive=false;
+  touchServiceCandidate=false;
+  touchDownAt=0;
+  touchLastReportAt=0;
+}
+
+static void serviceTouch(){
+  uint16_t x=0,y=0;
+  TouchReportType report=gt911Poll(x,y);
   unsigned long now=millis();
-  bool inCorner=(x<=SERVICE_RESTART_X_MAX && y<=SERVICE_RESTART_Y_MAX);
-  if(!inCorner){
-    serviceRestartHoldStart=0;
-    serviceRestartLastSeen=0;
-    return false;
+
+  if(report==TOUCH_REPORT_RELEASE){
+    releaseTouchContact("GT911");
+    return;
   }
 
-  // Kurze Luecken zwischen GT911-Reports tolerieren, ohne den 5-Sekunden-
-  // Zaehler bei jedem Touch-Report neu zu starten.
-  if(serviceRestartHoldStart==0 || (serviceRestartLastSeen && now-serviceRestartLastSeen>SERVICE_RESTART_RELEASE_GAP_MS)){
-    serviceRestartHoldStart=now;
-    Serial.println("SERVICE: Neustart-Geste erkannt - Ecke 5 Sekunden halten ...");
-  }
-  serviceRestartLastSeen=now;
+  if(report==TOUCH_REPORT_DOWN){
+    touchLastReportAt=now;
+    touchLastX=x;
+    touchLastY=y;
 
-  if(now-serviceRestartHoldStart>=SERVICE_RESTART_HOLD_MS){
-    restartDisplayService();
-  }
-  return true; // Ecke ist fuer die Service-Geste reserviert.
-}
+    if(!touchContactActive){
+      touchContactActive=true;
+      touchDownX=x;
+      touchDownY=y;
+      touchDownAt=now;
+      touchServiceCandidate=pointInServiceCorner(x,y);
 
-void serviceRestartRelease(){
-  if(serviceRestartHoldStart && millis()-serviceRestartLastSeen>SERVICE_RESTART_RELEASE_GAP_MS){
-    serviceRestartHoldStart=0;
-    serviceRestartLastSeen=0;
+      if(touchServiceCandidate){
+        Serial.println("SERVICE: Neustart-Geste erkannt - Ecke 5 Sekunden halten ...");
+      }else{
+        // Genau hier wird der einzige Klick dieses Fingerkontakts erzeugt.
+        // Weitere DOWN-Reports werden bis zum RELEASE nur verfolgt, nie geklickt.
+        dispatchTouchClick(x,y);
+      }
+    }else if(touchServiceCandidate && !pointInServiceCorner(x,y)){
+      // Finger aus der Service-Ecke bewegt: Long-Press abbrechen. Es wird
+      // absichtlich kein normaler Klick nachgereicht.
+      touchServiceCandidate=false;
+      Serial.println("SERVICE: Neustart-Geste abgebrochen");
+    }
   }
-}
 
-void handleServiceRestartTouch(){
-  if(pinScreen || accountScreen) return;
-  if(millis()-lastTouchMs<90){serviceRestartRelease();return;}
-  uint16_t x,y;
-  if(!gt911Read(x,y)){serviceRestartRelease();return;}
-  lastTouchMs=millis();
-  handleServiceRestartPoint(x,y);
+  if(touchContactActive && touchServiceCandidate && !serviceRestartTriggered){
+    if(now-touchDownAt>=SERVICE_RESTART_HOLD_MS){
+      restartDisplayService();
+      return;
+    }
+  }
+
+  // Sicherheitsnetz fuer einen verlorenen Release-Frame. Der normale GT911-
+  // Pfad benutzt den expliziten 0-Punkte-Release. Ein normal gehaltenes Finger-
+  // signal darf die Klicksperre NICHT zeitgesteuert aufheben. Erst nach 30 s
+  // ohne Report wird als reine Notfall-Recovery entsperrt.
+  if(touchContactActive && touchLastReportAt &&
+     now-touchLastReportAt>TOUCH_STUCK_RELEASE_MS &&
+     digitalRead(TOUCH_IRQ_PIN)==HIGH){
+    releaseTouchContact("Timeout");
+  }
 }
 
 void sendInputJson(const String& body){
@@ -565,7 +733,7 @@ void drawPaymentKeypadStatic(){
     gfx->fillRoundRect(x,y,w,h,10,fill); gfx->drawRoundRect(x,y,w,h,10,0xC618);
     gfx->setTextColor(i==11?0xFFFF:0x2104); gfx->setTextSize(2);
     int16_t x1,y1;uint16_t tw,th;gfx->getTextBounds(keys[i],0,0,&x1,&y1,&tw,&th);
-    gfx->setCursor(x+(w-tw)/2,y+19);gfx->print(keys[i]);
+    gfx->setCursor(x+(w-tw)/2,y+19);printDisplayText(keys[i]);
   }
 }
 void drawPaymentKeypad(){
@@ -577,51 +745,51 @@ void drawPaymentKeypad(){
 void drawAccountLeft(){
   gfx->fillRoundRect(18,18,310,444,14,0xFFFF);
   gfx->setTextColor(0x2104);gfx->setTextSize(2);
-  gfx->setCursor(38,42);gfx->print("Kundenkonto");
+  gfx->setCursor(38,42);printDisplayText("Kundenkonto");
   gfx->setTextColor(state.primary);gfx->setTextSize(3);
-  gfx->setCursor(38,82);gfx->print(state.accountName.substring(0,16));
+  gfx->setCursor(38,82);printDisplayText(state.accountName,16);
   gfx->setTextColor(0x4208);gfx->setTextSize(2);
-  gfx->setCursor(38,132);gfx->print("Guthaben");
+  gfx->setCursor(38,132);printDisplayText("Guthaben");
   gfx->setTextColor(state.primary);gfx->setTextSize(3);
-  gfx->setCursor(38,160);gfx->print(String(state.accountBalance,2)+" CHF");
+  gfx->setCursor(38,160);printDisplayText(String(state.accountBalance,2)+" CHF");
 
   gfx->setTextColor(0x4208);gfx->setTextSize(2);
-  gfx->setCursor(38,212);gfx->print("Zahlungs-PIN");
+  gfx->setCursor(38,212);printDisplayText("Zahlungs-PIN");
   gfx->setTextColor(state.accountPinConfigured?state.primary:0x4208);
-  gfx->setCursor(38,240);gfx->print(state.accountPinConfigured?"Aktiv":"Nicht aktiv");
+  gfx->setCursor(38,240);printDisplayText(state.accountPinConfigured?"Aktiv":"Nicht aktiv");
 
   const int x=38,w=270,h=54;
   gfx->fillRoundRect(x,298,w,h,10,state.primary);
   gfx->setTextColor(0xFFFF);gfx->setTextSize(2);gfx->setCursor(65,316);
-  gfx->print(state.accountPinConfigured?"PIN aendern":"PIN aktivieren");
+  printDisplayText(state.accountPinConfigured?"PIN ändern":"PIN aktivieren");
   if(state.accountPinConfigured){
     gfx->fillRoundRect(x,360,w,h,10,rgb565(185,28,28));
-    gfx->setTextColor(0xFFFF);gfx->setCursor(72,378);gfx->print("PIN deaktivieren");
+    gfx->setTextColor(0xFFFF);gfx->setCursor(72,378);printDisplayText("PIN deaktivieren");
   }
   gfx->fillRoundRect(x,422,w,30,8,0xC618);
-  gfx->setTextColor(0x2104);gfx->setTextSize(1);gfx->setCursor(151,432);gfx->print("Fertig");
+  gfx->setTextColor(0x2104);gfx->setTextSize(1);gfx->setCursor(151,432);printDisplayText("Fertig");
 }
 void drawAccountRight(){
   gfx->fillRoundRect(344,18,438,444,14,0xFFFF);
   if(state.accountMessage.length()){
-    gfx->setTextColor(rgb565(22,101,52));gfx->setTextSize(2);gfx->setCursor(374,42);gfx->print(state.accountMessage.substring(0,30));
+    gfx->setTextColor(rgb565(22,101,52));gfx->setTextSize(2);gfx->setCursor(374,42);printDisplayText(state.accountMessage,30);
   } else if(state.accountError.length()){
-    gfx->setTextColor(rgb565(185,28,28));gfx->setTextSize(2);gfx->setCursor(374,42);gfx->print(state.accountError.substring(0,30));
+    gfx->setTextColor(rgb565(185,28,28));gfx->setTextSize(2);gfx->setCursor(374,42);printDisplayText(state.accountError,30);
   }
 
   if(accountStep==0){
     gfx->setTextColor(0x4208);gfx->setTextSize(2);
-    gfx->setCursor(405,190);gfx->print("Links Aktion waehlen");
-    gfx->setCursor(424,226);gfx->print("Eingabe erscheint hier");
+    gfx->setCursor(405,190);printDisplayText("Links Aktion wählen");
+    gfx->setCursor(424,226);printDisplayText("Eingabe erscheint hier");
     return;
   }
 
   String title = accountStep==1 ? "Aktueller PIN" :
                  accountStep==2 ? "Neuer PIN" :
                  accountStep==3 ? "PIN wiederholen" : "PIN deaktivieren";
-  gfx->setTextColor(state.primary);gfx->setTextSize(3);gfx->setCursor(385,72);gfx->print(title);
+  gfx->setTextColor(state.primary);gfx->setTextSize(3);gfx->setCursor(385,72);printDisplayText(title);
   String dots="";for(size_t i=0;i<pinEntry.length();i++)dots+="* ";
-  gfx->setTextColor(0x2104);gfx->setTextSize(2);gfx->setCursor(475,112);gfx->print(dots);
+  gfx->setTextColor(0x2104);gfx->setTextSize(2);gfx->setCursor(475,112);printDisplayText(dots);
 
   const int x0=390,y0=150,w=105,h=58,g=12;
   const char* keys[12]={"1","2","3","4","5","6","7","8","9","<-","0","OK"};
@@ -631,20 +799,18 @@ void drawAccountRight(){
     gfx->fillRoundRect(x,y,w,h,9,fill);gfx->drawRoundRect(x,y,w,h,9,0xC618);
     gfx->setTextColor(i==11?0xFFFF:0x2104);gfx->setTextSize(2);
     int16_t x1,y1;uint16_t tw,th;gfx->getTextBounds(keys[i],0,0,&x1,&y1,&tw,&th);
-    gfx->setCursor(x+(w-tw)/2,y+19);gfx->print(keys[i]);
+    gfx->setCursor(x+(w-tw)/2,y+19);printDisplayText(keys[i]);
   }
 }
 void drawAccount(){
   gfx->fillScreen(state.bg);drawFrame();drawAccountLeft();drawAccountRight();
 }
-void handlePaymentPinTouch(){
+void handlePaymentPinClick(uint16_t x,uint16_t y){
   if(!pinScreen)return;
-  if(millis()-lastTouchMs<120){serviceRestartRelease();return;}
-  uint16_t x,y;if(!gt911Read(x,y)){serviceRestartRelease();return;}lastTouchMs=millis();
-  if(handleServiceRestartPoint(x,y))return;
   const int x0=205,y0=188,w=120,h=58,g=12;
+  if(x<x0||y<y0)return;
   int col=(x-x0)/(w+g),row=(y-y0)/(h+g);
-  if(x<x0||y<y0||col<0||col>2||row<0||row>3)return;
+  if(col<0||col>2||row<0||row>3)return;
   int bx=x0+col*(w+g),by=y0+row*(h+g);if(x>bx+w||y>by+h)return;
   int idx=row*3+col;const char* keys[12]={"1","2","3","4","5","6","7","8","9","B","0","O"};
   char k=keys[idx][0];
@@ -669,18 +835,15 @@ void handleAccountKeypadTouch(uint16_t x,uint16_t y){
       if(pinEntry==accountNewPin){
         sendInputJson(String("{\"action\":\"account_set_pin\",\"currentPin\":\"")+accountCurrentPin+"\",\"newPin\":\""+accountNewPin+"\"}");
         accountStep=0;accountCurrentPin="";accountNewPin="";pinEntry="";
-      }else{pinEntry="";accountNewPin="";accountStep=2;state.accountError="PINs stimmen nicht ueberein";}
+      }else{pinEntry="";accountNewPin="";accountStep=2;state.accountError="PINs stimmen nicht überein";}
     }else if(accountStep==4){
       sendInputJson(String("{\"action\":\"account_disable_pin\",\"currentPin\":\"")+pinEntry+"\"}");
       accountStep=0;pinEntry="";
     }
   }
 }
-void handleAccountTouch(){
+void handleAccountClick(uint16_t x,uint16_t y){
   if(!accountScreen)return;
-  if(millis()-lastTouchMs<120){serviceRestartRelease();return;}
-  uint16_t x,y;if(!gt911Read(x,y)){serviceRestartRelease();return;}lastTouchMs=millis();
-  if(handleServiceRestartPoint(x,y))return;
   if(x>=38&&x<=308&&y>=298&&y<=352){
     pinEntry="";accountCurrentPin="";accountNewPin="";
     accountStep=state.accountPinConfigured?1:2;state.accountError="";render();return;
@@ -703,9 +866,9 @@ static void drawShopItemSlot(int slot){
   gfx->setTextColor(0x2104);
   gfx->setTextSize(2);
   gfx->setCursor(24,rowY);
-  gfx->print(left.substring(0,30));
+  printDisplayText(left,30);
   gfx->setCursor(620,rowY);
-  gfx->print(right);
+  printDisplayText(right);
 }
 
 static void drawShopBodyFull(){
@@ -723,9 +886,9 @@ static void drawTotalRegion(){
   gfx->setTextColor(state.primary);
   gfx->setTextSize(3);
   gfx->setCursor(24,410);
-  gfx->print("TOTAL");
+  printDisplayText("TOTAL");
   gfx->setCursor(555,410);
-  gfx->print(String(state.total,2)+" CHF");
+  printDisplayText(String(state.total,2)+" CHF");
 }
 
 static void drawPaymentRegion(){
@@ -734,12 +897,12 @@ static void drawPaymentRegion(){
   gfx->setTextSize(2);
   gfx->setTextColor(0x2104);
   gfx->setCursor(24,454);
-  gfx->print(state.payment=="cash"?"Barzahlung":"Bitte bezahlen");
+  printDisplayText(state.payment=="cash"?"Barzahlung":"Bitte bezahlen");
   if(state.payment=="cash"&&state.tendered>=0){
     gfx->setCursor(260,454);
-    gfx->print("Gegeben "+String(state.tendered,2));
+    printDisplayText("Gegeben "+String(state.tendered,2));
     gfx->setCursor(520,454);
-    gfx->print("Rueckgeld "+String(state.change,2));
+    printDisplayText("Rückgeld "+String(state.change,2));
   }
 }
 
@@ -1083,6 +1246,8 @@ void drawConnectionStatus(const String& line1,const String& line2,const String& 
 void setup(){
   Serial.begin(115200);
   initBoardIoAndTouch();
+  Serial.println("Touch-Modus: EIN Fingerkontakt = EIN Klick; Wiederholung erst nach Loslassen.");
+  Serial.println("Textausgabe: UTF-8 -> CP437 aktiv (ä ö ü Ä Ö Ü ß).");
 
   Serial.printf("PSRAM frei vor Render-Puffer: %u Bytes\n",(unsigned)ESP.getFreePsram());
   if(frameCanvas->begin()){
@@ -1114,10 +1279,9 @@ void setup(){
   Serial.println("KinderKasse Display bereit: nur BLE, kein WLAN aktiv.");
 }
 void loop(){
-  // Touch und BLE sind die einzigen Laufzeitdienste. Es gibt bewusst kein WLAN.
-  handleServiceRestartTouch();
-  handlePaymentPinTouch();
-  handleAccountTouch();
+  // Touch wird genau einmal zentral gelesen. Ein Fingerkontakt = ein Klick.
+  // BLE ist der einzige Kommunikationsweg; es gibt bewusst kein WLAN.
+  serviceTouch();
 
   // BLE-Daten erst hier anwenden/rendern, niemals direkt im BLE-Callback.
   serviceBlePayload();

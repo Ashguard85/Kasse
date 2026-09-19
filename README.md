@@ -64,7 +64,7 @@ Wichtig:
 KinderKasse unterstützt mehrere Profile. Pro Profil können unter anderem Artikel,
 Design, Zahlungsarten und Anzeigeeinstellungen getrennt verwaltet werden.
 
-Für das Profil-Design stehen mehrere Presets zur Verfügung, darunter **Bier & Cocktail Bar** mit dunklem Petrol, Messing-Akzent und dunklen Flächen.
+Für das Profil-Design stehen mehrere Presets zur Verfügung, darunter **Bier & Cocktail Bar** mit dunklem Petrol, Messing-Akzent und dunklen Flächen. Bei aktivem Auto-Kontrast werden Vordergrund-, Status-, Fokus- und Hinweisfarben getrennt berechnet, damit sowohl helle als auch dunkle Vorlagen lesbar bleiben.
 
 Typischer Ablauf:
 1. Profil auswählen.
@@ -318,7 +318,7 @@ Sketch:
 devices/display-box/KinderKasseDisplay/KinderKasseDisplay.ino
 ```
 
-Firmware: `1.4.1`  
+Firmware: `1.4.3`  
 BLE-Gerätename: `KasseDisplay`
 
 Vorgesehen für **Waveshare ESP32-S3-Touch-LCD-4.3, 800 × 480**.
@@ -353,10 +353,14 @@ aktive KinderKasse-Client: Die Android-App verwendet natives BLE; kompatible Bro
 können Web Bluetooth verwenden. Im Servermodus bleiben die Daten auf Docker, aber der
 Client reicht den aktuellen Warenkorb/Status direkt per BLE an das Display weiter.
 
-Firmware **1.4.1** basiert beim Touch auf dem erfolgreich laufenden 1.3.5-Pfad:
+Firmware **1.4.2** basiert beim Touch weiterhin auf dem erfolgreich laufenden 1.3.5-Pfad:
 GT911 direkt über Arduino `Wire`, SDA GPIO8, SCL GPIO9, IRQ GPIO4 und Reset über
-CH422G EXIO1. Das Display-Rendering bleibt im 800×480-RGB565-PSRAM-Canvas und wird nur
-bei sichtbaren Zustandsänderungen geflusht.
+CH422G EXIO1. Neu wird jeder Fingerkontakt als **genau ein Klick** behandelt: Gedrückthalten
+wiederholt keine PIN-Ziffer und keinen Button; erst nach dem Loslassen wird der Touch erneut
+scharf. Das Display-Rendering bleibt im 800×480-RGB565-PSRAM-Canvas und wird nur bei
+sichtbaren Zustandsänderungen geflusht. UTF-8-Texte aus KinderKasse werden für die
+CP437-Displayschrift umgesetzt, sodass insbesondere **ä, ö, ü, Ä, Ö, Ü und ß** korrekt
+erscheinen.
 
 Die obere linke Ecke kann etwa fünf Sekunden gehalten werden, um Display und BLE neu
 zu starten. Es werden dabei keine Netzwerkdaten gelöscht, weil das Display keine

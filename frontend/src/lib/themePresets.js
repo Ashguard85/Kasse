@@ -57,6 +57,24 @@ export function bestTextColor(background) {
   return contrastRatio(background, WHITE) >= contrastRatio(background, BLACK) ? WHITE : BLACK;
 }
 
+export function ensureContrast(foreground, background, minRatio = 4.5) {
+  if (!isHexColor(foreground) || !isHexColor(background)) return foreground;
+  if (contrastRatio(background, foreground) >= minRatio) return foreground;
+
+  const seek = (target) => {
+    for (let step = 1; step <= 100; step += 1) {
+      const weight = step / 100;
+      const candidate = mixColors(foreground, target, weight);
+      if (contrastRatio(background, candidate) >= minRatio) return { candidate, weight };
+    }
+    return { candidate: target, weight: 1 };
+  };
+
+  const towardWhite = seek(WHITE);
+  const towardBlack = seek(BLACK);
+  return towardWhite.weight <= towardBlack.weight ? towardWhite.candidate : towardBlack.candidate;
+}
+
 export function normalizeTheme(theme = {}) {
   const next = { ...theme };
   next.appearanceMode = next.appearanceMode === "dark" ? "dark" : "light";
@@ -83,35 +101,68 @@ export function getThemeRuntime(theme = {}) {
   const surfaceRaised = dark ? "#2d323d" : "#ffffff";
   const primaryText = bestTextColor(normalized.primaryColor);
   const accentText = bestTextColor(normalized.accentColor);
+  const accentOnPrimary = ensureContrast(normalized.accentColor, normalized.primaryColor, 4.5);
+
+  const palette = dark
+    ? {
+        gray50: "#2b303a",
+        gray100: "#23272f",
+        gray200: "#3c4350",
+        gray300: "#626b79",
+        gray400: "#b5bdc9",
+        gray500: "#c5ccd6",
+        gray600: "#d8dde5",
+        gray700: "#e9ecf1",
+        gray800: "#f8fafc",
+        redLight: "#44272b",
+      }
+    : {
+        gray50: "#f8fafc",
+        gray100: "#f1f5f9",
+        gray200: "#d9dee7",
+        gray300: "#aab4c2",
+        gray400: "#526071",
+        gray500: "#526071",
+        gray600: "#475467",
+        gray700: "#344054",
+        gray800: "#182230",
+        redLight: "#fff1f2",
+      };
+
+  const primaryOnSurface = ensureContrast(normalized.primaryColor, surface, 4.5);
+  const primaryUi = ensureContrast(normalized.primaryColor, surface, 3);
+  const primarySoftBackground = mixColors(normalized.primaryColor, surface, dark ? 0.58 : 0.88);
+  const primarySoftText = ensureContrast(normalized.primaryColor, primarySoftBackground, 4.5);
+  const accentOnSurface = ensureContrast(normalized.accentColor, surface, 4.5);
+  const accentUi = ensureContrast(normalized.accentColor, surface, 3);
+  const dangerBase = "#dc2626";
+  const dangerOnSurface = ensureContrast(dangerBase, surface, 4.5);
+  const dangerSoftBackground = dark ? "#44272b" : "#fff1f2";
+  const dangerSoftText = ensureContrast(dangerBase, dangerSoftBackground, 4.5);
+  const linkOnSurface = ensureContrast("#2563eb", surface, 4.5);
+
   return {
     ...normalized,
     dark,
     surface,
     surfaceRaised,
     primaryText,
-    primaryTextMuted: mixColors(primaryText, normalized.primaryColor, 0.24),
+    primaryTextMuted: ensureContrast(mixColors(primaryText, normalized.primaryColor, 0.18), normalized.primaryColor, 4.5),
+    primaryOnSurface,
+    primaryUi,
+    primarySoftBackground,
+    primarySoftText,
     accentText,
-    primaryLight: mixColors(normalized.primaryColor, surface, dark ? 0.72 : 0.88),
+    accentOnPrimary,
+    accentOnSurface,
+    accentUi,
+    primaryLight: primarySoftBackground,
     accentDark: darkenColor(normalized.accentColor, 0.2),
-    palette: dark
-      ? {
-          gray50: "#272b34",
-          gray100: "#1f2229",
-          gray200: "#3b414d",
-          gray400: "#a4acb9",
-          gray600: "#d0d5dd",
-          gray800: "#f7f8fa",
-          redLight: "#44272b",
-        }
-      : {
-          gray50: "#f9fafb",
-          gray100: "#f3f4f6",
-          gray200: "#e5e7eb",
-          gray400: "#9ca3af",
-          gray600: "#4b5563",
-          gray800: "#1f2937",
-          redLight: "#fff5f5",
-        },
+    dangerOnSurface,
+    dangerSoftBackground,
+    dangerSoftText,
+    linkOnSurface,
+    palette,
   };
 }
 
@@ -120,13 +171,38 @@ export function getThemeChecks(theme = {}) {
   return [
     {
       id: "primary",
-      label: "Hauptfarbe",
+      label: "Hauptbutton",
       ratio: contrastRatio(runtime.primaryColor, runtime.primaryText),
     },
     {
+      id: "primarySurface",
+      label: "Hauptfarbe auf Fläche",
+      ratio: contrastRatio(runtime.surface, runtime.primaryOnSurface),
+    },
+    {
+      id: "primarySoft",
+      label: "Hinweisfläche",
+      ratio: contrastRatio(runtime.primarySoftBackground, runtime.primarySoftText),
+    },
+    {
       id: "accent",
-      label: "Akzentfarbe",
+      label: "Akzentfläche",
       ratio: contrastRatio(runtime.accentColor, runtime.accentText),
+    },
+    {
+      id: "muted",
+      label: "Sekundärtext",
+      ratio: contrastRatio(runtime.surface, runtime.palette.gray600),
+    },
+    {
+      id: "navAccent",
+      label: "Akzent im Kopfbereich",
+      ratio: contrastRatio(runtime.primaryColor, runtime.accentOnPrimary),
+    },
+    {
+      id: "danger",
+      label: "Fehlermeldung",
+      ratio: contrastRatio(runtime.dangerSoftBackground, runtime.dangerSoftText),
     },
     {
       id: "banner",

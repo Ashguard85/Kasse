@@ -109,7 +109,7 @@
 }
 .toggleOn .toggleKnob { transform: translateX(22px); }
 
-.warn { margin-top: 14px; font-size: 14px; font-weight: 800; color: var(--red); text-align: center; }
+.warn { margin-top: 14px; font-size: 14px; font-weight: 800; color: var(--danger-fg, var(--red)); text-align: center; }
 .saveBtn {
   margin-top: 18px;
   width: 100%;
@@ -142,7 +142,7 @@
   font-size: clamp(14px, 1.7vw, 16px);
   font-weight: 700;
 }
-.serverRow input:focus, .tokenGrid input:focus { outline: none; border-color: var(--green); }
+.serverRow input:focus, .tokenGrid input:focus { outline: none; border-color: var(--primary-ui, var(--green)); }
 .serverRow button, .serverActions button, .testBtn {
   padding: 10px 14px;
   border-radius: 10px;
@@ -166,7 +166,7 @@
   letter-spacing: 0.4px;
 }
 .secretHint { margin-top: 8px !important; color: var(--gray-600) !important; font-weight: 800; }
-.smallWarn { margin-top: 10px !important; color: var(--yellow-dark) !important; font-weight: 800; }
+.smallWarn { margin-top: 10px !important; color: var(--accent-fg, var(--yellow-dark)) !important; font-weight: 800; }
 
 .msg {
   margin-top: 14px;
@@ -176,8 +176,8 @@
   text-align: center;
   font-size: 14px;
 }
-.msgOk { background: var(--green-light); color: var(--green); }
-.msgErr { background: var(--red-light); color: var(--red); }
+.msgOk { background: var(--green-light); color: var(--primary-soft-text, var(--green)); }
+.msgErr { background: var(--red-light); color: var(--danger-soft-text, var(--danger-fg, var(--red))); }
 
 @media (max-width: 860px) {
   .methodList { grid-template-columns: 1fr; }
@@ -219,9 +219,9 @@
 }
 
 .modeChoiceActive {
-  border-color: var(--green);
+  border-color: var(--primary-ui, var(--green));
   background: var(--green-light);
-  color: var(--green-dark, #047857);
+  color: var(--primary-soft-text, var(--green-dark, #047857));
 }
 
 .localTools {
@@ -260,7 +260,7 @@
 .checkRow input {
   width: 24px;
   height: 24px;
-  accent-color: var(--green);
+  accent-color: var(--primary-ui, var(--green));
 }
 
 .printerRow {
@@ -280,7 +280,7 @@
 
 .printerRow select:focus {
   outline: none;
-  border-color: var(--green);
+  border-color: var(--primary-ui, var(--green));
 }
 
 .profileSwitchRow { display:grid; grid-template-columns:minmax(220px,1fr) 1fr; align-items:end; gap:14px; }
@@ -339,7 +339,7 @@
 }
 
 .presetCard:hover {
-  border-color: var(--green);
+  border-color: var(--primary-ui, var(--green));
   box-shadow: var(--shadow);
   transform: translateY(-1px);
 }
@@ -416,7 +416,7 @@
   width: 23px;
   height: 23px;
   margin-top: 1px;
-  accent-color: var(--green);
+  accent-color: var(--primary-ui, var(--green));
   flex-shrink: 0;
 }
 
@@ -548,9 +548,9 @@
 }
 .contrastGrid > div > div { display: flex; flex-direction: column; gap: 1px; }
 .contrastGrid small { font-weight: 800; }
-.contrastOk { background: var(--green-light); color: var(--green-dark); }
+.contrastOk { background: var(--green-light); color: var(--primary-soft-text, var(--green-dark)); }
 .contrastOk > span { background: var(--green); color: var(--primary-text, white); }
-.contrastWarn { background: var(--red-light); color: var(--red); }
+.contrastWarn { background: var(--red-light); color: var(--danger-soft-text, var(--danger-fg, var(--red))); }
 .contrastWarn > span { background: var(--red); color: white; }
 
 .serverRow input,
@@ -620,7 +620,7 @@
   padding: 11px 13px;
   border-radius: 10px;
   background: var(--green-light);
-  color: var(--green-dark);
+  color: var(--primary-soft-text, var(--green-dark));
   font-weight: 900;
 }
 .recoveryBox {
@@ -682,7 +682,7 @@
 }
 .displayTypeCard strong { font-size: 16px; }
 .displayTypeCard span { color: var(--gray-600); font-size: 13px; line-height: 1.35; font-weight: 700; }
-.displayTypeActive { border-color: var(--green); background: var(--green-light); }
+.displayTypeActive { border-color: var(--primary-ui, var(--green)); background: var(--green-light); }
 .localDisplayUrl {
   margin-top: 12px;
   padding: 12px;

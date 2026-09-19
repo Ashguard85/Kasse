@@ -62,7 +62,7 @@
   min-height: 34px;
   transition: background 0.12s, color 0.12s;
 }
-.letterBtn:hover { background: var(--green-light); color: var(--green); }
+.letterBtn:hover { background: var(--green-light); color: var(--primary-soft-text, var(--green)); }
 .letterActive { background: var(--green) !important; color: var(--primary-text, white) !important; }
 
 /* 3×3 grid — fills available height. touch-action: pan-y erlaubt vertikales
@@ -107,7 +107,7 @@
   cursor: pointer;
   overflow: hidden;
 }
-.articleCard:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); border-color: var(--green); }
+.articleCard:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); border-color: var(--primary-ui, var(--green)); }
 .articleCard:active { transform: scale(0.94); }
 
 /* Verschwommener Hintergrund: füllt die ganze Kachel (darf beschnitten werden),
@@ -265,7 +265,7 @@
 .cartItemControls { display: flex; align-items: center; gap: 4px; }
 .qtyBtn {
   background: var(--green-light);
-  color: var(--green);
+  color: var(--primary-soft-text, var(--green));
   width: 28px;
   height: 28px;
   border-radius: 7px;
@@ -278,7 +278,7 @@
   flex-shrink: 0;
 }
 .qty { font-size: 13px; font-weight: 800; min-width: 18px; text-align: center; }
-.cartItemPrice { font-size: 12px; font-weight: 900; color: var(--green); min-width: 58px; text-align: right; }
+.cartItemPrice { font-size: 12px; font-weight: 900; color: var(--primary-fg, var(--green)); min-width: 58px; text-align: right; }
 
 .cartTotal {
   display: flex;
@@ -289,7 +289,7 @@
   flex-shrink: 0;
 }
 .cartTotal span:first-child { font-size: 14px; font-weight: 700; color: var(--gray-600); }
-.totalAmount { font-size: 20px; font-weight: 900; color: var(--green); }
+.totalAmount { font-size: 20px; font-weight: 900; color: var(--primary-fg, var(--green)); }
 
 .payBtn {
   margin: 0 10px 8px;
@@ -308,7 +308,7 @@
 .clearBtn {
   margin: 0 10px 10px;
   background: transparent;
-  color: var(--red);
+  color: var(--danger-fg, var(--red));
   border: 2px solid var(--red);
   border-radius: var(--radius-sm);
   padding: 8px;
@@ -381,7 +381,7 @@
 }
 .modeActive {
   background: var(--surface, white);
-  color: var(--green);
+  color: var(--primary-fg, var(--green));
   box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }
 
@@ -398,7 +398,7 @@
 }
 .manualNameInput:focus {
   outline: none;
-  border-color: var(--green);
+  border-color: var(--primary-ui, var(--green));
 }
 
 /* ── QR Camera ── */
@@ -843,7 +843,7 @@
   color: var(--gray-800);
   background: var(--surface, white);
 }
-.cashInput:focus { outline: none; border-color: var(--green); }
+.cashInput:focus { outline: none; border-color: var(--primary-ui, var(--green)); }
 .cashQuick {
   width: 100%;
   display: grid;
@@ -863,7 +863,7 @@
   border-radius: var(--radius-sm);
   padding: 14px;
   background: var(--green-light);
-  color: var(--green-dark);
+  color: var(--primary-soft-text, var(--green-dark));
   font-size: 22px;
   font-weight: 800;
 }

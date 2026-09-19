@@ -549,7 +549,7 @@ export default function Einstellungen() {
                   checked={theme.autoContrast !== false}
                   onChange={(event) => updateTheme({ autoContrast: event.target.checked })}
                 />
-                <span><strong>Farben automatisch lesbar halten</strong><small>Textfarben und dunkle Buttonfarbe werden automatisch berechnet.</small></span>
+                <span><strong>Farben automatisch lesbar halten</strong><small>Text-, Status- und Fokusfarben werden automatisch auf gute Lesbarkeit abgestimmt.</small></span>
               </label>
 
               <div className={styles.colorGrid}>
@@ -614,7 +614,7 @@ export default function Einstellungen() {
                       backgroundColor: preview.bannerBackground,
                       color: theme.bannerImageDataUrl ? "#ffffff" : preview.bannerTextColor,
                       backgroundImage: theme.bannerImageDataUrl
-                        ? `linear-gradient(rgba(0,0,0,.38),rgba(0,0,0,.38)),url(${theme.bannerImageDataUrl})`
+                        ? `linear-gradient(rgba(0,0,0,.52),rgba(0,0,0,.52)),url(${theme.bannerImageDataUrl})`
                         : "none",
                     }}
                   >

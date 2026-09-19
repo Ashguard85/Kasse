@@ -122,7 +122,7 @@
 .amountRow input:focus,
 .addTokenBox input:focus {
   outline: none;
-  border-color: var(--green);
+  border-color: var(--primary-ui, var(--green));
   box-shadow: 0 0 0 3px rgba(26,122,60,0.12);
 }
 
@@ -161,7 +161,7 @@
 
 .modeActive {
   background: var(--surface, white);
-  color: var(--green);
+  color: var(--primary-fg, var(--green));
   box-shadow: 0 1px 7px rgba(0,0,0,0.10);
 }
 
@@ -195,7 +195,7 @@
   padding: 0 12px;
   border-radius: 10px;
   background: var(--green-light);
-  color: var(--green);
+  color: var(--primary-soft-text, var(--green));
   font-size: 14px;
   white-space: nowrap;
 }
@@ -226,7 +226,7 @@
   color: var(--gray-800);
 }
 .secondaryBtn:hover,
-.overviewBtn:hover { background: var(--green-light); color: var(--green); }
+.overviewBtn:hover { background: var(--green-light); color: var(--primary-soft-text, var(--green)); }
 
 .hint {
   margin-top: 10px;
@@ -247,8 +247,8 @@
   text-align: center;
   font-size: 14px;
 }
-.msgOk { background: var(--green-light); color: var(--green); }
-.msgErr { background: var(--red-light); color: var(--red); }
+.msgOk { background: var(--green-light); color: var(--primary-soft-text, var(--green)); }
+.msgErr { background: var(--red-light); color: var(--danger-soft-text, var(--danger-fg, var(--red))); }
 
 .customerList {
   display: flex;
@@ -262,7 +262,7 @@
   border-radius: 14px;
   overflow: hidden;
 }
-.customerOpen { border-color: rgba(26,122,60,0.35); }
+.customerOpen { border-color: var(--primary-ui, var(--green)); }
 
 .customerSummary {
   width: 100%;
@@ -314,15 +314,15 @@
 .balancePill {
   flex-shrink: 0;
   background: var(--green-light);
-  color: var(--green);
+  color: var(--primary-soft-text, var(--green));
   border-radius: 999px;
   padding: 8px 10px;
   font-size: clamp(14px, 1.9vw, 17px);
   font-weight: 900;
   white-space: nowrap;
 }
-.balanceLow { background: var(--red-light); color: var(--red); }
-.balanceLowText { color: var(--red) !important; }
+.balanceLow { background: var(--red-light); color: var(--danger-soft-text, var(--danger-fg, var(--red))); }
+.balanceLowText { color: var(--danger-fg, var(--red)) !important; }
 
 .customerDetail {
   border-top: 1px solid var(--gray-100);
@@ -345,7 +345,7 @@
 .detailTop > div { display: flex; flex-direction: column; gap: 2px; }
 .detailBalance {
   font-size: clamp(24px, 3.3vw, 34px);
-  color: var(--green);
+  color: var(--primary-fg, var(--green));
   line-height: 1;
 }
 
@@ -384,7 +384,7 @@
 }
 .tokenBadge {
   background: var(--red-light);
-  color: var(--red);
+  color: var(--danger-fg, var(--red));
   border-radius: 999px;
   padding: 3px 7px;
   font-size: 10px;
@@ -431,8 +431,8 @@
   font-weight: 900;
   white-space: nowrap;
 }
-.txMinus { color: var(--red); }
-.txPlus { color: var(--green); }
+.txMinus { color: var(--danger-fg, var(--red)); }
+.txPlus { color: var(--primary-fg, var(--green)); }
 
 .empty,
 .emptySmall {
@@ -531,7 +531,7 @@
   break-inside: avoid;
 }
 .overviewName { font-size: 16px; font-weight: 900; color: var(--gray-800); }
-.overviewBalance { font-size: 14px; font-weight: 900; color: var(--green); }
+.overviewBalance { font-size: 14px; font-weight: 900; color: var(--primary-fg, var(--green)); }
 .overviewQrImg { width: 140px; height: 140px; border-radius: 8px; margin: 4px 0; }
 .overviewUid { font-size: 10px; font-family: monospace; color: var(--gray-400); word-break: break-all; }
 
@@ -588,7 +588,7 @@
   border-radius: 10px;
   padding: 10px 14px;
   background: var(--red-light);
-  color: var(--red);
+  color: var(--danger-fg, var(--red));
   font-size: clamp(14px, 1.7vw, 16px);
   font-weight: 900;
 }

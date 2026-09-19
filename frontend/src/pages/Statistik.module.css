@@ -23,7 +23,7 @@
 
 .header h1 {
   font-size: clamp(28px, 3.4vw, 42px);
-  color: var(--green);
+  color: var(--primary-fg, var(--green));
   margin: 0 0 6px;
   font-weight: 1000;
 }
@@ -63,7 +63,7 @@
 
 .kpi {
   background: var(--green-light);
-  color: var(--green);
+  color: var(--primary-soft-text, var(--green));
   border-radius: 16px;
   padding: 16px;
   display: flex;
@@ -132,7 +132,7 @@
 }
 .saleTop div { display: flex; flex-direction: column; gap: 3px; }
 .saleTop span { color: var(--gray-600); font-weight: 800; font-size: 13px; }
-.saleAmount { color: var(--green); white-space: nowrap; }
+.saleAmount { color: var(--primary-fg, var(--green)); white-space: nowrap; }
 .itemList {
   display: flex;
   flex-wrap: wrap;
@@ -154,7 +154,7 @@
   font-weight: 900;
 }
 .empty { color: var(--gray-400); background: var(--surface, white); }
-.error { color: var(--red); background: var(--red-light); }
+.error { color: var(--danger-fg, var(--red)); background: var(--red-light); }
 
 @media (max-width: 700px) {
   .header,
