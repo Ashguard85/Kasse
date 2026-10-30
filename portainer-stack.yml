@@ -3,8 +3,8 @@ version: "3.9"
 services:
   kasse-backend:
     build:
-      context: https://github.com/Ashguard85/Kasse.git
-      dockerfile: backend/Dockerfile
+      context: "https://github.com/Ashguard85/Kasse.git#:backend"
+      dockerfile: Dockerfile
     container_name: kasse-backend
     restart: unless-stopped
     ports:
@@ -29,8 +29,8 @@ services:
 
   kasse-frontend:
     build:
-      context: https://github.com/Ashguard85/Kasse.git
-      dockerfile: frontend/Dockerfile
+      context: "https://github.com/Ashguard85/Kasse.git#:frontend"
+      dockerfile: Dockerfile
     container_name: kasse-frontend
     restart: unless-stopped
     ports:
