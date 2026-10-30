@@ -34,12 +34,7 @@ Start mit Docker Compose:
 docker compose up -d --build
 ```
 
-Alternativ kann `portainer-stack.yml` in Portainer verwendet werden. **Achtung:**
-Diese Datei baut die Images aus dem GitHub-Repository `Ashguard85/Kasse`, nicht
-aus einem heruntergeladenen ZIP. Fuer einen Git-basierten Portainer-Stack muss
-KinderKasse 2.9.2 zuerst in diesem Repository aktualisiert werden. Das ZIP wird
-nicht automatisch von Portainer eingelesen. Bei einer lokalen Installation aus
-dem entpackten ZIP dagegen `docker-compose.yml` im Projektordner verwenden.
+Alternativ kann `portainer-stack.yml` in Portainer verwendet werden.
 
 Nach dem Start KinderKasse im Browser öffnen und zuerst ein Profil sowie die
 gewünschten Zahlungsarten und Geräte konfigurieren.
@@ -480,33 +475,6 @@ Vor Updates:
 Bestehende Kundendaten nicht durch Löschen des Datenverzeichnisses oder Volumes
 ersetzen.
 
-### Docker-Paket als lokales Update installieren
-
-Das ZIP auf dem Docker-Host entpacken. Im Ordner `KinderKasse-Docker/`, in dem
-`docker-compose.yml` liegt, die Anwendung neu bauen und starten:
-
-```bash
-docker compose up -d --build
-```
-
-Wenn die Images trotz Quellaenderung unveraendert bleiben, mit
-`docker compose build --no-cache && docker compose up -d` neu bauen.
-**Nicht** `docker compose down -v` ausfuehren und das Verzeichnis
-`/home/buebi/docker/kasse/data` nicht loeschen.
-
-### Portainer-Stack, der per Git bereitgestellt wird
-
-1. Die aktualisierten Dateien aus `kasse-source.zip` ins GitHub-Repository
-   uebernehmen (ohne private Signing-Dateien).
-2. In Portainer den Git-Stack waehlen und **Pull and redeploy** ausfuehren.
-3. Falls das Image weiterhin alt ist, die Frontend- und Backend-Images wirklich
-   neu bauen lassen; `Pull and redeploy` allein baut nicht in jeder
-   Portainer-Konfiguration bei unveraenderter Stack-Datei neu.
-
-Die Datei `portainer-stack.yml` verwendet fuer den Git-Build getrennte
-Build-Kontexte `#:backend` und `#:frontend`, sodass `COPY package*.json` in
-beiden Dockerfiles die richtige Datei findet.
-
 Die Datei `VERSION` enthält nur die aktuelle Anwendungsversion für Build und
 Softwarebetrieb. Separate Status-/Versionsdokumente werden nicht geführt.
 
@@ -564,3 +532,13 @@ Jedes Zusatzgerät hat zusätzlich eine eigene `README.md` direkt im Geräteordn
 - `devices/drawer-box/README.md`
 
 Die Geräte-READMEs sind die erste Anlaufstelle beim Aufbau oder Flashen eines Zusatzgeräts.
+
+### Portainer-Web-Editor: aus GitHub bauen
+
+Fuer diese Installation bleiben die Build-Kontexte direkt auf GitHub
+(`https://github.com/Ashguard85/Kasse.git#main:backend` und `#main:frontend`).
+Im Portainer-Web-Editor die Datei `portainer-stack.yml` verwenden.
+Aktualisierte Quellen muessen zuerst im Branch `main` des GitHub-Repositories
+liegen; erst danach im bestehenden Stack die Images neu bauen/aktualisieren.
+Der Datenordner `/home/buebi/docker/kasse/data` bleibt erhalten.
+Nicht `docker compose down -v` ausfuehren.
