@@ -532,13 +532,3 @@ Jedes Zusatzgerät hat zusätzlich eine eigene `README.md` direkt im Geräteordn
 - `devices/drawer-box/README.md`
 
 Die Geräte-READMEs sind die erste Anlaufstelle beim Aufbau oder Flashen eines Zusatzgeräts.
-
-### Portainer-Web-Editor: aus GitHub bauen
-
-Fuer diese Installation bleiben die Build-Kontexte direkt auf GitHub
-(`https://github.com/Ashguard85/Kasse.git#main:backend` und `#main:frontend`).
-Im Portainer-Web-Editor die Datei `portainer-stack.yml` verwenden.
-Aktualisierte Quellen muessen zuerst im Branch `main` des GitHub-Repositories
-liegen; erst danach im bestehenden Stack die Images neu bauen/aktualisieren.
-Der Datenordner `/home/buebi/docker/kasse/data` bleibt erhalten.
-Nicht `docker compose down -v` ausfuehren.
