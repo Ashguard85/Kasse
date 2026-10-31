@@ -121,13 +121,6 @@
   .nfcStatus { font-size: 12px; padding-left: 8px; padding-right: 8px; }
 }
 
-/* Portrait fallback message */
-@media (orientation: portrait) and (max-width: 700px) {
-  .portraitHint {
-    display: flex;
-  }
-}
-
 .portraitHint {
   display: none;
   position: fixed;
@@ -212,3 +205,8 @@
 .kioskLink { background: transparent; color: var(--link-fg, #2563eb); font-weight: 900; }
 .kioskCancel { background: var(--gray-100); color: var(--gray-700); border-radius: 10px; min-height: 42px; font-weight: 800; }
 .kioskError { padding: 9px; border-radius: 9px; background: var(--red-light, #fee2e2); color: var(--danger-soft-text, var(--red, #b91c1c)); font-weight: 800; }
+
+/* Normal tablet register orientation hint; customer display is exempt. */
+@media (orientation: portrait) and (max-width: 700px) {
+  .portraitHint { display: flex; }
+}

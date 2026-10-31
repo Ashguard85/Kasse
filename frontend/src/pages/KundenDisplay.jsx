@@ -282,7 +282,8 @@ export default function KundenDisplay() {
               <div className={styles.accountHint}>
                 <span>👈</span>
                 <h3>PIN verwalten</h3>
-                <p>Links eine Aktion auswählen. Die Eingabe erscheint hier.</p>
+                <p className={styles.accountHintDesktop}>Links eine Aktion auswählen. Die Eingabe erscheint hier.</p>
+                <p className={styles.accountHintMobile}>Oben eine Aktion auswählen. Die Eingabe erscheint darunter.</p>
               </div>
             )}
 

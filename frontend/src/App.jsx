@@ -7,6 +7,7 @@ import Einstellungen from "./pages/Einstellungen";
 import Drucker from "./pages/Drucker";
 import Statistik from "./pages/Statistik";
 import KundenDisplay from "./pages/KundenDisplay";
+import PwaUpdateNotice from "./PwaUpdateNotice";
 import { CartProvider } from "./CartContext";
 import { NfcProvider } from "./NfcContext";
 import NfcStatus from "./NfcStatus";
@@ -172,10 +173,12 @@ function AppShell() {
   return (
     <HashRouter>
       <div className={styles.app}>
-        <div className={styles.portraitHint}>
-          <span>🔄</span>
-          Bitte das Tablet drehen
-        </div>
+        {!customerDisplay && (
+          <div className={styles.portraitHint}>
+            <span>🔄</span>
+            Bitte das Tablet drehen
+          </div>
+        )}
 
         <nav className={styles.nav}>
           <div className={styles.logo}>🛒 {activeProfile?.name || "Kasse"}</div>
@@ -211,6 +214,7 @@ export default function App() {
           <CustomerDisplayBleProvider>
             <DrawerProvider>
               <AppShell />
+              <PwaUpdateNotice />
             </DrawerProvider>
           </CustomerDisplayBleProvider>
         </ProfileProvider>

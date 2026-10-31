@@ -542,3 +542,30 @@ Aktualisierte Quellen muessen zuerst im Branch `main` des GitHub-Repositories
 liegen; erst danach im bestehenden Stack die Images neu bauen/aktualisieren.
 Der Datenordner `/home/buebi/docker/kasse/data` bleibt erhalten.
 Nicht `docker compose down -v` ausfuehren.
+
+
+### iPhone-Kundendisplay (seit 2.9.3)
+Die Kundenanzeige ist im Hochformat nutzbar. Das Portrait-Overlay des Kassenmodus erscheint dort nicht mehr. HTML/JavaScript werden bei Updates nicht aus einem alten Browser-Cache gemischt. Bei Startproblemen erscheint eine Wiederherstellungsseite statt eines weißen Bildschirms. Website-Daten nicht löschen: lokale Kassendaten können darin gespeichert sein.
+
+
+### Kontrollierte PWA-Updates (seit 2.9.4)
+
+Die Web-App und die installierte iPhone-PWA fragen die aktuelle Version über
+`/version.json` ab. Die Datei wird beim Frontend-Build aus
+`frontend/package.json` erzeugt und von Nginx ohne Browser-Cache ausgeliefert.
+KinderKasse prüft beim Start, nach der Rückkehr zur App und etwa alle drei
+Minuten im laufenden Betrieb. Ist eine andere Version auf dem Server, zeigt
+die Kasse einen Hinweis mit **„Später“** und **„Jetzt neu laden“**. Die
+Kasse lädt **nie automatisch** neu: Erst offene Verkäufe abschließen und
+anschließend selbst neu laden. Dabei bleiben Profil, URL und lokale
+Browserdaten erhalten. „Später“ blendet den Hinweis für diese Version in
+der aktuellen Sitzung aus.
+
+Die Versionsabfrage ist für die Web-App/PWA gedacht, nicht für die Android-APK
+(diese wird weiterhin per APK-Update installiert). Der Service Worker speichert
+keine App-Dateien und keine API-Antworten offline. Bei einem Update keine
+Safari-Website-Daten löschen, solange lokale Kassendaten darauf liegen.
+
+**Hinweis zur erstmaligen Einführung:** Eine bereits geöffnete ältere Version
+kann diesen neuen Hinweis noch nicht anzeigen. Nach der einmaligen Umstellung
+auf 2.9.4 werden spätere Versionen automatisch erkannt.
