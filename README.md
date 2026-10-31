@@ -574,3 +574,8 @@ auf 2.9.4 werden spätere Versionen automatisch erkannt.
 ## iPhone-Kundendisplay (2.9.5)
 
 Das Kundenkonto und die PIN-Verwaltung nutzen auf iPhone im Hoch- und Querformat eine einzige scrollbar mobile Ansicht. Konto-Karten schrumpfen nicht mehr zusammen; der PIN-Editor wird nach Auswahl einer Aktion automatisch eingeblendet. Das Einstellungs-Zahnrad sitzt oben rechts, und die PWA-Update-Erkennung aus 2.9.4 bleibt enthalten. Docker/GitHub-Stack und Kundendaten sind unverändert.
+
+
+## iPhone-Kundendisplay (2.9.6)
+
+Das mobile Kundendisplay auf dem iPhone nutzt nun fuer den normalen Einkaufsbildschirm einen festen Gesamt-/Zahlungsbereich am unteren Rand. Darueber befindet sich ein eigener scrollbarer Artikelbereich. Neue Artikel werden im Kundendisplay oben einsortiert und automatisch in den Fokus gebracht. Dadurch bleibt das Total jederzeit sichtbar, waehrend die Artikelliste unabhaengig davon gescrollt werden kann.

@@ -114,6 +114,7 @@ export default function KundenDisplay() {
   );
   const profileName = liveProfile?.name || activeProfile?.name || "KinderKasse";
   const items = Array.isArray(state.items) ? state.items : [];
+  const displayedItems = useMemo(() => [...items].reverse(), [items]);
   const cash = state.paymentMode === "cash";
 
   useEffect(() => {
@@ -124,13 +125,13 @@ export default function KundenDisplay() {
 
     requestAnimationFrame(() => {
       const box = itemsRef.current;
-      box.scrollTo({ top: box.scrollHeight, behavior: "smooth" });
-      const last = box.lastElementChild;
-      if (last) {
-        last.classList.remove(styles.itemFresh);
+      box.scrollTo({ top: 0, behavior: "smooth" });
+      const newest = box.firstElementChild;
+      if (newest) {
+        newest.classList.remove(styles.itemFresh);
         // Reflow ensures repeated quantity changes re-trigger the highlight.
-        void last.offsetWidth;
-        last.classList.add(styles.itemFresh);
+        void newest.offsetWidth;
+        newest.classList.add(styles.itemFresh);
       }
     });
   }, [items]);
@@ -374,13 +375,13 @@ export default function KundenDisplay() {
       ) : (
         <main className={styles.content}>
           <section ref={itemsRef} className={styles.items}>
-            {items.length === 0 ? (
+            {displayedItems.length === 0 ? (
               <div className={styles.centerMessage}>
                 <span>🛒</span>
                 <h2>Willkommen!</h2>
                 <p>Der nächste Einkauf kann beginnen.</p>
               </div>
-            ) : items.map((item, index) => (
+            ) : displayedItems.map((item, index) => (
               <div className={styles.item} key={`${item.name}-${index}`}>
                 <div>
                   <strong>{item.name}</strong>

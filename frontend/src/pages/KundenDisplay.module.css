@@ -420,16 +420,53 @@
   .frame > .content {
     display: flex;
     flex-direction: column;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
     gap: 10px;
     padding: 10px;
   }
-  .items { min-height: 155px; flex: 1 0 auto; max-height: none; }
-  .summary { flex: 0 0 auto; min-height: 130px; padding: 16px; }
-  .total { font-size: clamp(30px, 8vw, 50px); overflow-wrap: anywhere; }
-  .item { gap: 10px; }
+  .items {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    scroll-behavior: smooth;
+    padding-right: 2px;
+  }
+  .summary {
+    flex: 0 0 auto;
+    min-height: 0;
+    padding: 14px;
+    border-radius: 16px;
+    box-shadow: 0 -2px 12px rgba(0,0,0,.08);
+    position: sticky;
+    bottom: 0;
+  }
+  .totalLabel { font-size: 14px; }
+  .total {
+    font-size: clamp(28px, 8vw, 46px);
+    line-height: 1.05;
+    overflow-wrap: anywhere;
+    margin-bottom: 8px;
+  }
+  .payment {
+    gap: 6px;
+    font-size: 15px;
+  }
+  .payment > strong { font-size: clamp(20px, 5vw, 28px); }
+  .cashRow { padding-top: 2px; font-size: 15px; }
+  .success { font-size: clamp(32px, 8vw, 56px); gap: 6px; }
+  .success strong { font-size: clamp(22px, 5vw, 30px); }
+  .item {
+    gap: 10px;
+    padding: 12px 14px;
+    align-items: flex-start;
+  }
   .item strong, .item b { font-size: clamp(16px, 4.5vw, 24px); }
+  .item span { font-size: 13px; }
 
   /* Settings no longer covers the last button in the account panel. */
   .exit {
