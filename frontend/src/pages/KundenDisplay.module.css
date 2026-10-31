@@ -194,6 +194,8 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .accountRight {
   display: flex;
@@ -281,160 +283,170 @@
   margin-top: 4px;
 }
 
-@media (max-width: 900px), (max-height: 620px), (pointer: coarse) and (max-width: 1024px) {
-  .frame {
-    margin: 4px;
-    border-width: 4px;
-    border-radius: 14px;
+/*
+ * iPhone / compact display: one vertical scroll container owns the entire account.
+ * Previously the left/right cards inherited min-height:0 and flex-shrink:1,
+ * compressing their contents on short landscape screens. This led to overlaid
+ * headings, a clipped PIN button and a "Fertig" button outside the card.
+ */
+.accountHintMobile { display: none; }
+
+@media (max-width: 900px), (max-height: 620px) and (pointer: coarse) {
+  .screen {
+    -webkit-text-size-adjust: 100%;
   }
 
-  .content {
-    padding: 10px;
-    gap: 10px;
+  .frame {
+    margin: 3px;
+    border-width: 3px;
+    border-radius: 13px;
+    min-height: 0;
   }
 
   .accountTerminal {
     display: flex;
+    flex: 1 1 auto;
     flex-direction: column;
+    justify-content: flex-start;
+    align-items: stretch;
+    min-height: 0;
+    min-width: 0;
+    gap: 10px;
+    padding: 10px 10px max(20px, env(safe-area-inset-bottom, 0px));
+    overflow-x: hidden;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
-    padding: 10px;
-    gap: 10px;
-    align-items: stretch;
+    overscroll-behavior: contain;
+    scroll-padding-top: 10px;
   }
 
+  /* Never shrink cards to fit the short iPhone landscape viewport. */
   .accountLeft,
   .accountRight {
-    padding: 14px;
-    border-radius: 16px;
+    display: flex;
+    flex: 0 0 auto;
+    width: 100%;
+    height: auto;
+    min-width: 0;
+    min-height: auto;
+    box-sizing: border-box;
     overflow: visible;
+    border-radius: 15px;
+    padding: 14px;
   }
 
-  .accountLeft {
-    gap: 12px;
-  }
+  .accountLeft { gap: 10px; }
+  .accountRight { justify-content: flex-start; gap: 10px; }
 
-  .accountIdentity {
-    gap: 10px;
-  }
+  /* The big desktop placeholder is not useful below the mobile buttons. */
+  .accountRightIdle { display: none; }
+  .accountHintDesktop { display: none; }
+  .accountHintMobile { display: block; }
 
-  .accountAvatar {
-    font-size: clamp(38px, 8vw, 52px);
-  }
-
-  .accountHello {
-    font-size: 14px;
-  }
-
+  .accountIdentity { gap: 10px; padding-right: 45px; }
+  .accountAvatar { font-size: 42px; flex: 0 0 auto; }
+  .accountHello { font-size: 14px; }
   .accountTerminal h2 {
-    font-size: clamp(22px, 7vw, 34px);
+    font-size: clamp(23px, 6vw, 32px);
+    line-height: 1.16;
+    overflow-wrap: anywhere;
   }
 
   .accountBalance {
-    padding: 13px 14px;
+    width: 100%;
+    min-width: 0;
+    padding: 12px 14px;
+    border-width: 1px;
+    border-radius: 12px;
   }
-
-  .accountBalance span {
+  .accountBalance span { font-size: 14px; }
+  .accountBalance strong {
+    font-size: clamp(24px, 6.8vw, 37px);
+    line-height: 1.12;
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+  }
+  .accountStatus {
+    flex-direction: row;
+    align-items: center;
+    padding: 11px 13px;
+    gap: 8px;
+    border-radius: 11px;
     font-size: 14px;
   }
+  .accountStatus span, .accountStatus strong { font-size: 14px; }
 
-  .accountBalance strong {
-    font-size: clamp(26px, 8vw, 40px);
-    line-height: 1.05;
-  }
-
-  .accountStatus {
-    padding: 12px 14px;
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .accountActions,
-  .accountForm {
+  .accountActions, .accountForm { width: 100%; max-width: none; }
+  .accountActions { margin-top: 0; gap: 8px; }
+  .accountActions button, .accountForm button {
+    flex: 0 0 auto;
     width: 100%;
-    max-width: none;
-  }
-
-  .accountActions {
-    margin-top: 0;
-    gap: 8px;
-  }
-
-  .accountActions button,
-  .accountForm button {
     min-height: 48px;
+    padding: 10px 12px;
     font-size: 16px;
+    line-height: 1.25;
+    white-space: normal;
   }
+  .accountActions .accountClose { margin-top: 3px; }
 
-  .accountHint {
-    margin: 0;
-    max-width: none;
-    padding: 6px 0;
-  }
-
-  .accountHint span {
-    font-size: 40px;
-  }
-
-  .accountHint h3 {
-    font-size: 24px;
-  }
-
-  .accountHint p {
-    font-size: 16px;
-  }
-
-  .accountForm {
-    gap: 10px;
-    margin: 0;
-  }
-
-  .accountForm h3 {
-    font-size: clamp(22px, 6vw, 30px);
-  }
-
-  .accountForm p {
-    font-size: 15px;
-  }
-
-  .accountForm label {
-    font-size: 13px;
-  }
-
+  .accountHint { margin: 0; width: 100%; padding: 6px 0; }
+  .accountHint span { display: none; }
+  .accountHint h3 { font-size: 22px; }
+  .accountHint p { font-size: 15px; }
+  .accountForm { margin: 0; gap: 10px; }
+  .accountForm h3 { font-size: clamp(22px, 6vw, 30px); }
+  .accountForm p { font-size: 15px; }
+  .accountForm label { font-size: 14px; }
   .accountForm input {
+    box-sizing: border-box;
     min-height: 48px;
-    font-size: 18px;
+    padding: 10px 12px;
+    font-size: 18px; /* prevent Safari's automatic input zoom */
   }
-
-  .accountFormActions {
-    grid-template-columns: 1fr;
-  }
+  .accountFormActions { grid-template-columns: minmax(0, 1fr); }
 
   .pinTerminal {
-    padding: 16px 12px;
+    justify-content: flex-start;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 18px 12px 24px;
+    gap: 10px;
   }
+  .pinTerminal h2 { font-size: clamp(26px, 6vw, 38px); }
+  .pinPad { width: min(360px, 100%); gap: 8px; flex: 0 0 auto; }
+  .pinPad button { min-height: 54px; font-size: 24px; }
 
-  .pinPad {
-    width: min(360px, 100%);
-    gap: 8px;
+  .frame > .content {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    gap: 10px;
+    padding: 10px;
   }
+  .items { min-height: 155px; flex: 1 0 auto; max-height: none; }
+  .summary { flex: 0 0 auto; min-height: 130px; padding: 16px; }
+  .total { font-size: clamp(30px, 8vw, 50px); overflow-wrap: anywhere; }
+  .item { gap: 10px; }
+  .item strong, .item b { font-size: clamp(16px, 4.5vw, 24px); }
 
-  .pinPad button {
-    min-height: 60px;
-    font-size: 24px;
-  }
-
+  /* Settings no longer covers the last button in the account panel. */
   .exit {
+    z-index: 2;
+    top: max(12px, env(safe-area-inset-top, 0px));
+    bottom: auto;
+    right: max(12px, env(safe-area-inset-right, 0px));
     width: 38px;
     height: 38px;
-    font-size: 16px;
+    padding: 0;
+    font-size: 17px;
+    opacity: .75;
   }
 }
 
-/* The action instructions must make sense on narrow screens. */
-.accountHintMobile { display: none; }
-@media (max-width: 900px), (max-height: 620px), (pointer: coarse) and (max-width: 1024px) {
-  .accountHintDesktop { display: none; }
-  .accountHintMobile { display: block; }
+@media (max-width: 360px) {
+  .accountTerminal { padding: 7px; gap: 8px; }
+  .accountLeft, .accountRight { padding: 10px; }
+  .accountBalance strong { font-size: 23px; }
 }

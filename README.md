@@ -569,3 +569,8 @@ Safari-Website-Daten löschen, solange lokale Kassendaten darauf liegen.
 **Hinweis zur erstmaligen Einführung:** Eine bereits geöffnete ältere Version
 kann diesen neuen Hinweis noch nicht anzeigen. Nach der einmaligen Umstellung
 auf 2.9.4 werden spätere Versionen automatisch erkannt.
+
+
+## iPhone-Kundendisplay (2.9.5)
+
+Das Kundenkonto und die PIN-Verwaltung nutzen auf iPhone im Hoch- und Querformat eine einzige scrollbar mobile Ansicht. Konto-Karten schrumpfen nicht mehr zusammen; der PIN-Editor wird nach Auswahl einer Aktion automatisch eingeblendet. Das Einstellungs-Zahnrad sitzt oben rechts, und die PWA-Update-Erkennung aus 2.9.4 bleibt enthalten. Docker/GitHub-Stack und Kundendaten sind unverändert.

@@ -54,6 +54,8 @@ export default function KundenDisplay() {
   const [accountNewPin2, setAccountNewPin2] = useState("");
   const [accountError, setAccountError] = useState("");
   const itemsRef = useRef(null);
+  const accountScrollRef = useRef(null);
+  const accountPanelRef = useRef(null);
   const previousItemSignatureRef = useRef("");
 
   const localMode = getDataMode() === "local";
@@ -214,6 +216,22 @@ export default function KundenDisplay() {
     await sendTerminalInput({ action: "account_disable_pin", currentPin: accountCurrentPin });
   };
 
+  // After choosing a PIN action, bring the form into view on narrow iPhones.
+  // Only react to mode changes, not to the 650 ms display polling updates.
+  useEffect(() => {
+    if (state.status !== "account") return;
+    const frame = requestAnimationFrame(() => {
+      const mobile = window.matchMedia("(max-width: 900px), (max-height: 620px) and (pointer: coarse)").matches;
+      if (!mobile) return;
+      if (accountMode === "home") {
+        accountScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
+      } else {
+        accountPanelRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [accountMode, state.status]);
+
   const saveSource = () => {
     const clean = saveLocalSource(localSourceDraft);
     setLocalSource(clean);
@@ -241,7 +259,7 @@ export default function KundenDisplay() {
           <small>Beide Geräte müssen im selben WLAN sein. Alternativ kann das Kassen-Tablet einen Hotspot bereitstellen.</small>
         </div>
       ) : state.status === "account" ? (
-        <div className={styles.accountTerminal}>
+        <div ref={accountScrollRef} className={styles.accountTerminal}>
           <section className={styles.accountLeft}>
             <div className={styles.accountIdentity}>
               <div className={styles.accountAvatar}>👤</div>
@@ -274,13 +292,13 @@ export default function KundenDisplay() {
             </div>
           </section>
 
-          <section className={styles.accountRight}>
+          <section ref={accountPanelRef} className={`${styles.accountRight} ${accountMode === "home" && !accountError && !state?.account?.message && !state?.account?.error ? styles.accountRightIdle : ""}`}>
             {state?.account?.message && <div className={styles.accountOk}>{state.account.message}</div>}
             {(accountError || state?.account?.error) && <div className={styles.pinError}>{accountError || state.account.error}</div>}
 
             {accountMode === "home" && (
               <div className={styles.accountHint}>
-                <span>👈</span>
+                <span aria-hidden="true">👈</span>
                 <h3>PIN verwalten</h3>
                 <p className={styles.accountHintDesktop}>Links eine Aktion auswählen. Die Eingabe erscheint hier.</p>
                 <p className={styles.accountHintMobile}>Oben eine Aktion auswählen. Die Eingabe erscheint darunter.</p>
@@ -404,7 +422,7 @@ export default function KundenDisplay() {
       )}
       </div>
 
-      <button className={styles.exit} onClick={() => { window.location.hash = "#/einstellungen"; }}>⚙️</button>
+      <button className={styles.exit} aria-label="Einstellungen öffnen" title="Einstellungen" onClick={() => { window.location.hash = "#/einstellungen"; }}>⚙️</button>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-// KinderKasse 2.9.4 — network-only service worker.
+// KinderKasse 2.9.5 — network-only service worker.
 // Keep PWA install support without caching app files or API responses.
 // Retain Cloudflare Access credentials on same-origin requests.
 self.addEventListener('install', () => self.skipWaiting());
