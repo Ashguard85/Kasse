@@ -579,3 +579,8 @@ Das Kundenkonto und die PIN-Verwaltung nutzen auf iPhone im Hoch- und Querformat
 ## iPhone-Kundendisplay (2.9.6)
 
 Das mobile Kundendisplay auf dem iPhone nutzt nun fuer den normalen Einkaufsbildschirm einen festen Gesamt-/Zahlungsbereich am unteren Rand. Darueber befindet sich ein eigener scrollbarer Artikelbereich. Neue Artikel werden im Kundendisplay oben einsortiert und automatisch in den Fokus gebracht. Dadurch bleibt das Total jederzeit sichtbar, waehrend die Artikelliste unabhaengig davon gescrollt werden kann.
+
+
+## Kundendisplay im Querformat (2.9.7)
+
+Auf iPhone, kleinen Tablets und vergleichbaren Querformat-Bildschirmen wird das browserbasierte Kundendisplay zweispaltig dargestellt: Der Warenkorb befindet sich links in einem **eigenständig scrollbareren Bereich**, rechts sind Total und Zahlungsinformationen dauerhaft sichtbar. Neu erfasste Positionen erscheinen **unten** in der Liste; nach einer Änderung scrollt ausschliesslich die Warenkorbliste automatisch zum letzten Artikel. Die gesamte Anzeige bleibt fix. Die Kundenkonto-/PIN-Verwaltung verwendet im kompakten Querformat ebenfalls zwei unabhängig scrollbare Spalten. Die PWA-Update-Erkennung sowie das ESP32-BLE-Protokoll sind unverändert.

@@ -114,7 +114,6 @@ export default function KundenDisplay() {
   );
   const profileName = liveProfile?.name || activeProfile?.name || "KinderKasse";
   const items = Array.isArray(state.items) ? state.items : [];
-  const displayedItems = useMemo(() => [...items].reverse(), [items]);
   const cash = state.paymentMode === "cash";
 
   useEffect(() => {
@@ -125,11 +124,15 @@ export default function KundenDisplay() {
 
     requestAnimationFrame(() => {
       const box = itemsRef.current;
-      box.scrollTo({ top: 0, behavior: "smooth" });
-      const newest = box.firstElementChild;
+      if (!box) return;
+      // Only the article list scrolls. The total stays in its own fixed column.
+      // Use an immediate scroll to avoid iOS Safari interrupting smooth scrolling
+      // when the next state poll arrives.
+      box.scrollTop = box.scrollHeight;
+      const newest = box.lastElementChild;
       if (newest) {
         newest.classList.remove(styles.itemFresh);
-        // Reflow ensures repeated quantity changes re-trigger the highlight.
+        // Force reflow so quantity updates can re-trigger the highlight.
         void newest.offsetWidth;
         newest.classList.add(styles.itemFresh);
       }
@@ -223,7 +226,10 @@ export default function KundenDisplay() {
     if (state.status !== "account") return;
     const frame = requestAnimationFrame(() => {
       const mobile = window.matchMedia("(max-width: 900px), (max-height: 620px) and (pointer: coarse)").matches;
-      if (!mobile) return;
+      const compactLandscape = window.matchMedia("(orientation: landscape) and (max-height: 620px) and (max-width: 1100px)").matches;
+      // In landscape, the account form lives in its own visible column.
+      // Do not scroll the whole customer display when switching actions.
+      if (!mobile || compactLandscape) return;
       if (accountMode === "home") {
         accountScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
       } else {
@@ -375,13 +381,13 @@ export default function KundenDisplay() {
       ) : (
         <main className={styles.content}>
           <section ref={itemsRef} className={styles.items}>
-            {displayedItems.length === 0 ? (
+            {items.length === 0 ? (
               <div className={styles.centerMessage}>
                 <span>🛒</span>
                 <h2>Willkommen!</h2>
                 <p>Der nächste Einkauf kann beginnen.</p>
               </div>
-            ) : displayedItems.map((item, index) => (
+            ) : items.map((item, index) => (
               <div className={styles.item} key={`${item.name}-${index}`}>
                 <div>
                   <strong>{item.name}</strong>
